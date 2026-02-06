@@ -1,58 +1,119 @@
--- tests/test_config_spec.lua
--- Basic tests to verify the test harness works and config defaults are sane.
+describe("okuban.config", function()
+  local config
 
-describe("okuban", function()
-  describe("config", function()
-    it("has default columns", function()
-      local defaults = {
-        { label = "okuban:backlog", name = "Backlog", color = "#c5def5" },
-        { label = "okuban:todo", name = "Todo", color = "#0075ca" },
-        { label = "okuban:in-progress", name = "In Progress", color = "#fbca04" },
-        { label = "okuban:review", name = "Review", color = "#d4c5f9" },
-        { label = "okuban:done", name = "Done", color = "#0e8a16" },
-      }
-      assert.equals(5, #defaults)
-      assert.equals("okuban:backlog", defaults[1].label)
-      assert.equals("okuban:done", defaults[5].label)
-    end)
-
-    it("has show_unsorted enabled by default", function()
-      local defaults = { show_unsorted = true }
-      assert.is_true(defaults.show_unsorted)
-    end)
-
-    it("has skip_preflight disabled by default", function()
-      local defaults = { skip_preflight = false }
-      assert.is_false(defaults.skip_preflight)
-    end)
-
-    it("has claude settings with sane defaults", function()
-      local defaults = {
-        claude = {
-          enabled = true,
-          max_budget_usd = 5.00,
-          max_turns = 30,
-        },
-      }
-      assert.is_true(defaults.claude.enabled)
-      assert.equals(5.00, defaults.claude.max_budget_usd)
-      assert.equals(30, defaults.claude.max_turns)
-    end)
+  before_each(function()
+    package.loaded["okuban.config"] = nil
+    config = require("okuban.config")
   end)
 
-  describe("label system", function()
-    it("uses okuban: prefix for all kanban labels", function()
-      local labels = { "okuban:backlog", "okuban:todo", "okuban:in-progress", "okuban:review", "okuban:done" }
-      for _, label in ipairs(labels) do
-        assert.truthy(label:match("^okuban:"))
-      end
+  describe("defaults", function()
+    it("has 5 kanban columns", function()
+      local cfg = config.get()
+      assert.equals(5, #cfg.columns)
+    end)
+
+    it("has correct column labels", function()
+      local cfg = config.get()
+      assert.equals("okuban:backlog", cfg.columns[1].label)
+      assert.equals("okuban:todo", cfg.columns[2].label)
+      assert.equals("okuban:in-progress", cfg.columns[3].label)
+      assert.equals("okuban:review", cfg.columns[4].label)
+      assert.equals("okuban:done", cfg.columns[5].label)
+    end)
+
+    it("has correct column names", function()
+      local cfg = config.get()
+      assert.equals("Backlog", cfg.columns[1].name)
+      assert.equals("In Progress", cfg.columns[3].name)
+      assert.equals("Done", cfg.columns[5].name)
     end)
 
     it("has valid hex colors for all columns", function()
-      local colors = { "#c5def5", "#0075ca", "#fbca04", "#d4c5f9", "#0e8a16" }
-      for _, color in ipairs(colors) do
-        assert.truthy(color:match("^#%x%x%x%x%x%x$"), "Invalid hex color: " .. color)
+      local cfg = config.get()
+      for _, col in ipairs(cfg.columns) do
+        assert.truthy(col.color:match("^#%x%x%x%x%x%x$"), "Invalid hex color: " .. col.color)
       end
+    end)
+
+    it("uses okuban: prefix for all kanban labels", function()
+      local cfg = config.get()
+      for _, col in ipairs(cfg.columns) do
+        assert.truthy(col.label:match("^okuban:"), "Missing prefix: " .. col.label)
+      end
+    end)
+
+    it("has show_unsorted enabled", function()
+      assert.is_true(config.get().show_unsorted)
+    end)
+
+    it("has skip_preflight disabled", function()
+      assert.is_false(config.get().skip_preflight)
+    end)
+
+    it("has nil github_hostname", function()
+      assert.is_nil(config.get().github_hostname)
+    end)
+
+    it("has claude settings with sane defaults", function()
+      local claude = config.get().claude
+      assert.is_true(claude.enabled)
+      assert.equals(5.00, claude.max_budget_usd)
+      assert.equals(30, claude.max_turns)
+    end)
+
+    it("has default keymaps", function()
+      local keymaps = config.get().keymaps
+      assert.equals("h", keymaps.column_left)
+      assert.equals("l", keymaps.column_right)
+      assert.equals("k", keymaps.card_up)
+      assert.equals("j", keymaps.card_down)
+      assert.equals("m", keymaps.move_card)
+      assert.equals("q", keymaps.close)
+      assert.equals("r", keymaps.refresh)
+      assert.equals("?", keymaps.help)
+    end)
+  end)
+
+  describe("setup", function()
+    it("merges user overrides", function()
+      config.setup({ show_unsorted = false })
+      assert.is_false(config.get().show_unsorted)
+    end)
+
+    it("preserves defaults for unset keys", function()
+      config.setup({ show_unsorted = false })
+      assert.equals(5, #config.get().columns)
+      assert.is_true(config.get().claude.enabled)
+    end)
+
+    it("deep merges nested tables", function()
+      config.setup({ claude = { max_turns = 50 } })
+      local claude = config.get().claude
+      assert.equals(50, claude.max_turns)
+      assert.equals(5.00, claude.max_budget_usd)
+      assert.is_true(claude.enabled)
+    end)
+
+    it("allows keymap overrides", function()
+      config.setup({ keymaps = { close = "<Esc>" } })
+      local keymaps = config.get().keymaps
+      assert.equals("<Esc>", keymaps.close)
+      assert.equals("h", keymaps.column_left)
+    end)
+
+    it("resets to defaults on each setup call", function()
+      config.setup({ show_unsorted = false })
+      assert.is_false(config.get().show_unsorted)
+      config.setup({})
+      assert.is_true(config.get().show_unsorted)
+    end)
+  end)
+
+  describe("defaults()", function()
+    it("returns a copy that does not mutate internal state", function()
+      local d = config.defaults()
+      d.show_unsorted = false
+      assert.is_true(config.get().show_unsorted)
     end)
   end)
 end)
