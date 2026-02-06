@@ -12,22 +12,50 @@ end
 
 --- Open the kanban board.
 function M.open()
+  local Board = require("okuban.ui.board")
+  local board = Board.get_instance()
+
+  -- If board is already open, close it first (toggle behavior)
+  if board:is_open() then
+    board:close()
+    return
+  end
+
   api.preflight(function(ok)
     if not ok then
       return
     end
-    utils.notify("Board opening not yet implemented", vim.log.levels.WARN)
+    api.fetch_all_columns(function(data)
+      if not data then
+        utils.notify("Failed to fetch issues", vim.log.levels.ERROR)
+        return
+      end
+      board:open(data)
+    end)
   end)
 end
 
 --- Close the kanban board.
 function M.close()
-  utils.notify("Board not open", vim.log.levels.WARN)
+  local Board = require("okuban.ui.board")
+  Board.close_instance()
 end
 
 --- Refresh the kanban board.
 function M.refresh()
-  utils.notify("Board not open", vim.log.levels.WARN)
+  local Board = require("okuban.ui.board")
+  local board = Board.get_instance()
+  if not board:is_open() then
+    utils.notify("Board not open", vim.log.levels.WARN)
+    return
+  end
+  api.fetch_all_columns(function(data)
+    if not data then
+      utils.notify("Failed to refresh", vim.log.levels.ERROR)
+      return
+    end
+    board:refresh(data)
+  end)
 end
 
 --- Run label setup on the current repo.
