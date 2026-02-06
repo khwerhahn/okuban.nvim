@@ -255,6 +255,12 @@ function Board:_setup_autocommands()
       if self.preview_win and self.preview_win == win then
         return
       end
+      -- Allow okuban popup windows (actions menu, help, vim.ui.select)
+      local buf = vim.api.nvim_win_get_buf(win)
+      local ft = vim.bo[buf].filetype
+      if ft == "okuban" then
+        return
+      end
       -- Entered a non-board window — close the board
       vim.schedule(function()
         self:close()

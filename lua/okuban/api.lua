@@ -136,6 +136,60 @@ function M.edit_labels(number, remove_label, add_label, callback)
   end)
 end
 
+--- Close a GitHub issue.
+---@param number integer Issue number
+---@param callback fun(ok: boolean, err: string|nil)
+function M.close_issue(number, callback)
+  local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
+    "issue",
+    "close",
+    tostring(number),
+  })
+  vim.system(cmd, { text = true }, function(result)
+    vim.schedule(function()
+      if result.code == 0 then
+        callback(true, nil)
+      else
+        callback(false, result.stderr or "Failed to close issue")
+      end
+    end)
+  end)
+end
+
+--- Assign an issue to the current user.
+---@param number integer Issue number
+---@param callback fun(ok: boolean, err: string|nil)
+function M.assign_issue(number, callback)
+  local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
+    "issue",
+    "edit",
+    tostring(number),
+    "--add-assignee",
+    "@me",
+  })
+  vim.system(cmd, { text = true }, function(result)
+    vim.schedule(function()
+      if result.code == 0 then
+        callback(true, nil)
+      else
+        callback(false, result.stderr or "Failed to assign issue")
+      end
+    end)
+  end)
+end
+
+--- Open an issue in the system browser.
+---@param number integer Issue number
+function M.view_issue_in_browser(number)
+  local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
+    "issue",
+    "view",
+    tostring(number),
+    "--web",
+  })
+  vim.system(cmd, { text = true })
+end
+
 -- ---------------------------------------------------------------------------
 -- Fetch issues
 -- ---------------------------------------------------------------------------
