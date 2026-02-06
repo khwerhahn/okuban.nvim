@@ -128,6 +128,37 @@ describe("okuban.ui.actions", function()
     end)
   end)
 
+  describe("build_actions context", function()
+    it("includes close/assign/code for open issues", function()
+      local issue = { number = 42, title = "Test", state = "OPEN" }
+      local board = {} -- minimal stub
+      local action_list = actions._build_actions(issue, board)
+      local keys = {}
+      for _, a in ipairs(action_list) do
+        keys[a.key] = true
+      end
+      assert.is_true(keys["m"]) -- move always
+      assert.is_true(keys["v"]) -- view always
+      assert.is_true(keys["c"]) -- close for open
+      assert.is_true(keys["a"]) -- assign for open
+    end)
+
+    it("excludes close/assign/code for closed issues", function()
+      local issue = { number = 42, title = "Test", state = "CLOSED" }
+      local board = {}
+      local action_list = actions._build_actions(issue, board)
+      local keys = {}
+      for _, a in ipairs(action_list) do
+        keys[a.key] = true
+      end
+      assert.is_true(keys["m"]) -- move always available
+      assert.is_true(keys["v"]) -- view always available
+      assert.is_nil(keys["c"]) -- no close
+      assert.is_nil(keys["a"]) -- no assign
+      assert.is_nil(keys["x"]) -- no code
+    end)
+  end)
+
   describe("open_actions keymap", function()
     it("is configured as Enter by default", function()
       local keymaps = config.get().keymaps
