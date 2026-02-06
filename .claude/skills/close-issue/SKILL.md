@@ -44,9 +44,22 @@ gh issue comment $ARGUMENTS --body "Work completed. Closing this issue."
 gh issue close $ARGUMENTS --reason "completed"
 ```
 
-### 5. Confirm
+### 5. Clean up feature branch
+
+Switch to `main` and delete the local feature branch:
+
+```bash
+git checkout main
+git pull
+git branch -D <feature-branch>
+```
+
+The remote branch is auto-deleted by GitHub on PR merge (`delete_branch_on_merge` is enabled).
+
+### 6. Confirm
 
 Print a summary:
 - Issue: #NUMBER — TITLE
 - Status: **Closed** (completed)
 - Kanban: moved to **Done**
+- Branch: deleted (local + remote)
