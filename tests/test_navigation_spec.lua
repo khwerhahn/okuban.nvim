@@ -166,6 +166,45 @@ describe("okuban.ui.navigation", function()
     end)
   end)
 
+  describe("focus_issue", function()
+    it("navigates to an issue in the first column", function()
+      local board = mock_board({ 3, 2, 5 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+
+      local found = nav:focus_issue(102) -- col1, card 2
+      assert.is_true(found)
+      assert.equals(1, nav.column_index)
+      assert.equals(2, nav.card_index)
+    end)
+
+    it("navigates to an issue in a later column", function()
+      local board = mock_board({ 3, 2, 5 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+
+      local found = nav:focus_issue(302) -- col3, card 2
+      assert.is_true(found)
+      assert.equals(3, nav.column_index)
+      assert.equals(2, nav.card_index)
+    end)
+
+    it("returns false when issue not found", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+
+      local found = nav:focus_issue(999)
+      assert.is_false(found)
+      -- Position unchanged
+      assert.equals(1, nav.column_index)
+      assert.equals(1, nav.card_index)
+    end)
+  end)
+
   describe("empty columns", function()
     it("handles column with zero issues", function()
       local board = mock_board({ 0, 3, 0 })

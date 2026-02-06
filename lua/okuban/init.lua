@@ -34,6 +34,20 @@ function M.open()
         return
       end
       board:populate(data)
+
+      -- Auto-focus: detect current issue and navigate to it
+      local detect = require("okuban.detect")
+      detect.detect_issue(function(issue_number)
+        if not issue_number or not board:is_open() or not board.navigation then
+          return
+        end
+        local found = board.navigation:focus_issue(issue_number)
+        if found then
+          local issue = board.navigation:get_selected_issue()
+          local title = issue and issue.title or ""
+          utils.notify("Focused on #" .. issue_number .. ": " .. title)
+        end
+      end)
     end)
   end)
 end
