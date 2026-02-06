@@ -32,7 +32,7 @@ describe("okuban.api fetch", function()
 
       local done = false
       local result = nil
-      api.fetch_column("okuban:todo", nil, function(issues)
+      api.fetch_column("okuban:todo", nil, nil, function(issues)
         done = true
         result = issues
       end)
@@ -53,7 +53,7 @@ describe("okuban.api fetch", function()
 
       local done = false
       local result = nil
-      api.fetch_column("okuban:todo", nil, function(issues)
+      api.fetch_column("okuban:todo", nil, nil, function(issues)
         done = true
         result = issues
       end)
@@ -72,7 +72,7 @@ describe("okuban.api fetch", function()
       local done = false
       local result_issues = "not_nil"
       local result_err = nil
-      api.fetch_column("okuban:todo", nil, function(issues, err)
+      api.fetch_column("okuban:todo", nil, nil, function(issues, err)
         done = true
         result_issues = issues
         result_err = err
@@ -91,7 +91,7 @@ describe("okuban.api fetch", function()
       })
 
       local done = false
-      api.fetch_column("okuban:in-progress", nil, function()
+      api.fetch_column("okuban:in-progress", nil, nil, function()
         done = true
       end)
 
@@ -117,7 +117,7 @@ describe("okuban.api fetch", function()
       })
 
       local done = false
-      api.fetch_column("okuban:done", "all", function()
+      api.fetch_column("okuban:done", "all", nil, function()
         done = true
       end)
 
@@ -128,6 +128,25 @@ describe("okuban.api fetch", function()
       local cmd = calls[1].cmd
       assert.truthy(vim.tbl_contains(cmd, "--state"))
       assert.truthy(vim.tbl_contains(cmd, "all"))
+    end)
+
+    it("passes custom limit to gh command", function()
+      local calls = helpers.mock_vim_system({
+        { code = 0, stdout = "[]" },
+      })
+
+      local done = false
+      api.fetch_column("okuban:done", "all", 20, function()
+        done = true
+      end)
+
+      vim.wait(1000, function()
+        return done
+      end)
+
+      local cmd = calls[1].cmd
+      assert.truthy(vim.tbl_contains(cmd, "--limit"))
+      assert.truthy(vim.tbl_contains(cmd, "20"))
     end)
   end)
 
@@ -175,6 +194,69 @@ describe("okuban.api fetch", function()
       assert.is_not_nil(result.unsorted)
       assert.equals(1, #result.unsorted)
       assert.equals(99, result.unsorted[1].number)
+    end)
+
+    it("passes Done column limit to fetch_column", function()
+      local responses = {}
+      for i = 1, 6 do
+        responses[i] = { code = 0, stdout = "[]" }
+      end
+      local calls = helpers.mock_vim_system(responses)
+
+      local done = false
+      api.fetch_all_columns(function()
+        done = true
+      end)
+
+      vim.wait(2000, function()
+        return done
+      end)
+
+      -- The 5th column (Done) should use --limit 20
+      local done_cmd = calls[5].cmd
+      local limit_val = nil
+      for i, v in ipairs(done_cmd) do
+        if v == "--limit" then
+          limit_val = done_cmd[i + 1]
+          break
+        end
+      end
+      assert.equals("20", limit_val)
+
+      -- Other columns should use --limit 100 (default)
+      local todo_cmd = calls[2].cmd
+      local todo_limit = nil
+      for i, v in ipairs(todo_cmd) do
+        if v == "--limit" then
+          todo_limit = todo_cmd[i + 1]
+          break
+        end
+      end
+      assert.equals("100", todo_limit)
+    end)
+
+    it("includes limit field in returned board data", function()
+      local responses = {}
+      for i = 1, 6 do
+        responses[i] = { code = 0, stdout = "[]" }
+      end
+      helpers.mock_vim_system(responses)
+
+      local done = false
+      local result = nil
+      api.fetch_all_columns(function(data)
+        done = true
+        result = data
+      end)
+
+      vim.wait(2000, function()
+        return done
+      end)
+
+      -- Done column (index 5) should have limit = 20
+      assert.equals(20, result.columns[5].limit)
+      -- Other columns should have nil limit
+      assert.is_nil(result.columns[1].limit)
     end)
 
     it("passes column state to fetch_column for Done column", function()

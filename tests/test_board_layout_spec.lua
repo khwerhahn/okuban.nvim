@@ -53,5 +53,46 @@ describe("okuban.ui.board layout", function()
       assert.equals(20, layout.col_width)
       assert.is_true(layout.board_height > 0)
     end)
+
+    it("splits available height 75/25 between columns and preview", function()
+      local layout = Board.calculate_layout(5, 120, 40, 8)
+      -- available = floor(40*0.8) - 3 = 29
+      -- board = floor(29 * 0.75) = 21, preview = 29 - 21 = 8
+      assert.equals(21, layout.board_height)
+      assert.equals(8, layout.preview_height)
+      assert.is_not_nil(layout.preview_row)
+    end)
+
+    it("positions preview below columns", function()
+      local layout = Board.calculate_layout(5, 120, 40, 8)
+      -- Preview should start after: start_row + board_height + 2 (border) + 1 (gap)
+      assert.equals(layout.start_row + layout.board_height + 3, layout.preview_row)
+    end)
+
+    it("has no preview fields when preview_lines is 0", function()
+      local layout = Board.calculate_layout(5, 120, 40, 0)
+      assert.is_nil(layout.preview_height)
+      assert.is_nil(layout.preview_row)
+    end)
+
+    it("has no preview fields when preview_lines is nil", function()
+      local layout = Board.calculate_layout(5, 120, 40)
+      assert.is_nil(layout.preview_height)
+      assert.is_nil(layout.preview_row)
+    end)
+
+    it("gives preview more space on larger terminals", function()
+      local layout = Board.calculate_layout(5, 160, 50, 8)
+      -- available = floor(50*0.8) - 3 = 37
+      -- board = floor(37 * 0.75) = 27, preview = 37 - 27 = 10
+      assert.equals(27, layout.board_height)
+      assert.equals(10, layout.preview_height)
+    end)
+
+    it("enforces minimum board height with preview", function()
+      -- Very small terminal with preview
+      local layout = Board.calculate_layout(5, 120, 15, 5)
+      assert.is_true(layout.board_height >= 5)
+    end)
   end)
 end)

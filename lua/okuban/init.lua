@@ -25,12 +25,15 @@ function M.open()
     if not ok then
       return
     end
+    -- Show loading skeleton instantly, populate when data arrives
+    board:open_loading()
     api.fetch_all_columns(function(data)
       if not data then
         utils.notify("Failed to fetch issues", vim.log.levels.ERROR)
+        board:close()
         return
       end
-      board:open(data)
+      board:populate(data)
     end)
   end)
 end

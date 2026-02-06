@@ -90,6 +90,7 @@ function Navigation:_focus_window()
 end
 
 --- Highlight the currently focused card using extmarks.
+--- Supports multi-line cards via card_ranges on each column.
 function Navigation:highlight_current()
   -- Clear all highlights in all board buffers
   for _, buf in ipairs(self.board.buffers) do
@@ -104,16 +105,41 @@ function Navigation:highlight_current()
     return
   end
 
-  local line = self.card_index - 1 -- 0-indexed
+  local col = self.board.columns[self.column_index]
+  local ranges = col and col.card_ranges
   local line_count = vim.api.nvim_buf_line_count(buf)
-  if line >= 0 and line < line_count then
-    vim.api.nvim_buf_add_highlight(buf, ns_id, "OkubanCardFocused", line, 0, -1)
+  local win = self.board.windows[self.column_index]
+
+  if ranges and ranges[self.card_index] then
+    -- Multi-line card: highlight entire range
+    local range = ranges[self.card_index]
+    for line_nr = range.start_line, range.end_line do
+      local zero_line = line_nr - 1
+      if zero_line >= 0 and zero_line < line_count then
+        vim.api.nvim_buf_add_highlight(buf, ns_id, "OkubanCardFocused", zero_line, 0, -1)
+      end
+    end
+
+    -- Scroll into view: set cursor to end_line first (forces scroll), then start_line
+    if win and vim.api.nvim_win_is_valid(win) then
+      local end_row = math.min(range.end_line, line_count)
+      vim.api.nvim_win_set_cursor(win, { end_row, 0 })
+      vim.api.nvim_win_set_cursor(win, { range.start_line, 0 })
+    end
+  else
+    -- Fallback: single-line mode (legacy or no card_ranges)
+    local line = self.card_index - 1
+    if line >= 0 and line < line_count then
+      vim.api.nvim_buf_add_highlight(buf, ns_id, "OkubanCardFocused", line, 0, -1)
+    end
+    if win and vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_set_cursor(win, { self.card_index, 0 })
+    end
   end
 
-  -- Set cursor position in the window
-  local win = self.board.windows[self.column_index]
-  if win and vim.api.nvim_win_is_valid(win) then
-    vim.api.nvim_win_set_cursor(win, { self.card_index, 0 })
+  -- Update preview pane with selected issue
+  if self.board.update_preview then
+    self.board:update_preview(self:get_selected_issue())
   end
 end
 

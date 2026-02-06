@@ -9,6 +9,7 @@ describe("okuban.ui.navigation", function()
   end)
 
   --- Create a mock board with the given column sizes.
+  --- Each card gets a single-line card_range for testing.
   ---@param sizes integer[] Number of issues per column
   ---@return table mock_board
   local function mock_board(sizes)
@@ -17,10 +18,12 @@ describe("okuban.ui.navigation", function()
     local buffers = {}
     for i, count in ipairs(sizes) do
       local issues = {}
+      local card_ranges = {}
       for j = 1, count do
         table.insert(issues, { number = i * 100 + j, title = "Issue " .. j })
+        table.insert(card_ranges, { start_line = j, end_line = j })
       end
-      table.insert(columns, { name = "Col" .. i, issues = issues })
+      table.insert(columns, { name = "Col" .. i, issues = issues, card_ranges = card_ranges })
       table.insert(windows, i) -- fake window handles
       table.insert(buffers, i) -- fake buffer handles
     end
