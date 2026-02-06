@@ -110,6 +110,32 @@ function M._gh_base_cmd()
   return gh_base_cmd()
 end
 
+--- Edit labels on an issue (remove one, add another).
+---@param number integer Issue number
+---@param remove_label string Label to remove
+---@param add_label string Label to add
+---@param callback fun(ok: boolean, err: string|nil)
+function M.edit_labels(number, remove_label, add_label, callback)
+  local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
+    "issue",
+    "edit",
+    tostring(number),
+    "--remove-label",
+    remove_label,
+    "--add-label",
+    add_label,
+  })
+  vim.system(cmd, { text = true }, function(result)
+    vim.schedule(function()
+      if result.code == 0 then
+        callback(true, nil)
+      else
+        callback(false, result.stderr or "Failed to edit labels")
+      end
+    end)
+  end)
+end
+
 -- ---------------------------------------------------------------------------
 -- Fetch issues
 -- ---------------------------------------------------------------------------
