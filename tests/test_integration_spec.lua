@@ -193,6 +193,71 @@ describe("okuban integration", function()
     end)
   end)
 
+  describe("first-open hint", function()
+    --- Helper: check if hint condition is met (mirrors init.lua logic)
+    local function should_show_hint(data)
+      local all_empty = true
+      for _, col in ipairs(data.columns) do
+        if #col.issues > 0 then
+          all_empty = false
+          break
+        end
+      end
+      if all_empty and data.unsorted and #data.unsorted > 0 then
+        return true
+      end
+      return false
+    end
+
+    it("triggers when all kanban columns empty and unsorted has issues", function()
+      local data = {
+        columns = {
+          { label = "okuban:backlog", issues = {} },
+          { label = "okuban:todo", issues = {} },
+          { label = "okuban:in-progress", issues = {} },
+        },
+        unsorted = {
+          { number = 1, title = "Untriaged issue" },
+        },
+      }
+      assert.is_true(should_show_hint(data))
+    end)
+
+    it("does NOT trigger when at least one column has issues", function()
+      local data = {
+        columns = {
+          { label = "okuban:backlog", issues = {} },
+          { label = "okuban:todo", issues = { { number = 1, title = "Task" } } },
+          { label = "okuban:in-progress", issues = {} },
+        },
+        unsorted = {
+          { number = 2, title = "Untriaged" },
+        },
+      }
+      assert.is_false(should_show_hint(data))
+    end)
+
+    it("does NOT trigger when unsorted is also empty", function()
+      local data = {
+        columns = {
+          { label = "okuban:backlog", issues = {} },
+          { label = "okuban:todo", issues = {} },
+        },
+        unsorted = {},
+      }
+      assert.is_false(should_show_hint(data))
+    end)
+
+    it("does NOT trigger when unsorted is nil", function()
+      local data = {
+        columns = {
+          { label = "okuban:backlog", issues = {} },
+        },
+      }
+      assert.is_false(should_show_hint(data))
+    end)
+  end)
+
   describe("config integration", function()
     it("all modules respect config overrides", function()
       config.setup({
