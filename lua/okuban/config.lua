@@ -4,6 +4,7 @@ local M = {}
 ---@field label string
 ---@field name string
 ---@field color string
+---@field state string|nil "open", "closed", or "all" (default: "open")
 
 ---@class OkubanKeymaps
 ---@field column_left string
@@ -35,7 +36,7 @@ local defaults = {
     { label = "okuban:todo", name = "Todo", color = "#0075ca" },
     { label = "okuban:in-progress", name = "In Progress", color = "#fbca04" },
     { label = "okuban:review", name = "Review", color = "#d4c5f9" },
-    { label = "okuban:done", name = "Done", color = "#0e8a16" },
+    { label = "okuban:done", name = "Done", color = "#0e8a16", state = "all" },
   },
   show_unsorted = true,
   skip_preflight = false,
