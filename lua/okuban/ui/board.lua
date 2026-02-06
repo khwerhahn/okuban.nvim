@@ -1,6 +1,7 @@
 local card = require("okuban.ui.card")
 local config = require("okuban.config")
 local utils = require("okuban.utils")
+local worktree = require("okuban.worktree")
 
 local Board = {}
 Board.__index = Board
@@ -12,7 +13,10 @@ local instance = nil
 local function define_highlights()
   vim.api.nvim_set_hl(0, "OkubanCardFocused", { default = true, link = "CursorLine" })
   vim.api.nvim_set_hl(0, "OkubanColumnHeader", { default = true, link = "Title" })
+  vim.api.nvim_set_hl(0, "OkubanCardActive", { default = true, link = "WarningMsg" })
 end
+
+local ns_active = vim.api.nvim_create_namespace("okuban_worktree_active")
 
 --- Calculate layout dimensions for the board.
 ---@param num_cols integer
@@ -170,6 +174,38 @@ function Board:_create_preview_window(layout)
   end, { buffer = buf, nowait = true, silent = true })
 end
 
+--- Apply orange highlight to cards that have an active worktree.
+--- Uses a separate namespace so it persists alongside focus highlights.
+---@param wt_map table<integer, table>|nil Worktree map
+function Board:_apply_active_highlights(wt_map)
+  -- Clear previous active highlights on all buffers
+  for _, buf in ipairs(self.buffers) do
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_clear_namespace(buf, ns_active, 0, -1)
+    end
+  end
+
+  if not wt_map or not self.columns then
+    return
+  end
+
+  for i, col in ipairs(self.columns) do
+    local buf = self.buffers[i]
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+      for card_idx, issue in ipairs(col.issues) do
+        if wt_map[issue.number] and wt_map[issue.number].active then
+          local ranges = col.card_ranges
+          if ranges and ranges[card_idx] then
+            for line_nr = ranges[card_idx].start_line, ranges[card_idx].end_line do
+              vim.api.nvim_buf_add_highlight(buf, ns_active, "OkubanCardActive", line_nr - 1, 0, -1)
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
 --- Update the preview pane with the given issue's details.
 ---@param issue table|nil
 function Board:update_preview(issue)
@@ -185,7 +221,7 @@ function Board:update_preview(issue)
   local num_cols = #self.windows
   local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines)
   local inner_width = layout.board_width - 2
-  local lines = card.render_preview(issue, inner_width, layout.preview_height)
+  local lines = card.render_preview(issue, inner_width, layout.preview_height, self.worktree_map)
 
   vim.bo[self.preview_buf].modifiable = true
   vim.api.nvim_buf_set_lines(self.preview_buf, 0, -1, false, lines)
@@ -393,13 +429,17 @@ function Board:populate(data)
   local preview_lines = cfg.preview_lines or 0
   local layout = Board.calculate_layout(#cols, nil, nil, preview_lines)
 
+  -- Fetch worktree map (sync, ~4ms) for card badges
+  local wt_map = worktree.fetch_worktree_map()
+  self.worktree_map = wt_map
+
   for i, col in ipairs(cols) do
     local buf = self.buffers[i]
     local win = self.windows[i]
 
     if buf and vim.api.nvim_buf_is_valid(buf) then
       local inner_width = layout.col_width - 2
-      local lines, card_ranges = card.render_column(col.issues, inner_width)
+      local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map)
       col.card_ranges = card_ranges
 
       vim.bo[buf].modifiable = true
@@ -423,6 +463,35 @@ function Board:populate(data)
   end
 
   self.columns = cols
+
+  -- Apply orange highlight to active worktree cards
+  self:_apply_active_highlights(wt_map)
+
+  -- Enrich worktree map with dirty/clean status asynchronously
+  worktree.fetch_enriched(function(enriched_map)
+    if not self:is_open() then
+      return
+    end
+    self.worktree_map = enriched_map
+    -- Re-render columns with dirty/clean badges
+    for i, col in ipairs(self.columns) do
+      local buf = self.buffers[i]
+      if buf and vim.api.nvim_buf_is_valid(buf) then
+        local inner_width = layout.col_width - 2
+        local lines, card_ranges = card.render_column(col.issues, inner_width, enriched_map)
+        col.card_ranges = card_ranges
+        vim.bo[buf].modifiable = true
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.bo[buf].modifiable = false
+      end
+    end
+    -- Re-apply active highlights after re-rendering
+    self:_apply_active_highlights(enriched_map)
+    -- Re-highlight current card and update preview
+    if self.navigation then
+      self.navigation:highlight_current()
+    end
+  end)
 
   -- Set up or update navigation, preserving position during refresh
   local Navigation = require("okuban.ui.navigation")
@@ -462,6 +531,10 @@ function Board:open(data)
   local layout = Board.calculate_layout(#cols, nil, nil, preview_lines)
   self.augroup = vim.api.nvim_create_augroup("OkubanBoard", { clear = true })
 
+  -- Fetch worktree map for card badges
+  local wt_map = worktree.fetch_worktree_map()
+  self.worktree_map = wt_map
+
   for i, col in ipairs(cols) do
     local buf = vim.api.nvim_create_buf(false, true)
     vim.bo[buf].buftype = "nofile"
@@ -470,7 +543,7 @@ function Board:open(data)
     vim.bo[buf].filetype = "okuban"
 
     local inner_width = layout.col_width - 2
-    local lines, card_ranges = card.render_column(col.issues, inner_width)
+    local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map)
     col.card_ranges = card_ranges
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     vim.bo[buf].modifiable = false
@@ -507,6 +580,9 @@ function Board:open(data)
 
   -- Create preview window
   self:_create_preview_window(layout)
+
+  -- Apply orange highlight to active worktree cards
+  self:_apply_active_highlights(wt_map)
 
   -- Set up navigation (highlight_current will also update preview)
   local Navigation = require("okuban.ui.navigation")

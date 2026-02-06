@@ -224,6 +224,43 @@ describe("okuban.ui.card", function()
       assert.truthy(result:match("#12345"))
       assert.truthy(result:match("Big"))
     end)
+
+    it("shows worktree badge when worktree exists", function()
+      local wt_map = { [42] = { path = "/wt", branch = "feat/issue-42", dirty = false } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, wt_map)
+      -- Should contain circle indicator
+      assert.truthy(result:match("\xe2\x97\x8b")) -- U+25CB WHITE CIRCLE (clean)
+    end)
+
+    it("shows dirty badge for dirty worktree", function()
+      local wt_map = { [42] = { path = "/wt", branch = "feat/issue-42", dirty = true } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, wt_map)
+      assert.truthy(result:match("\xe2\x97\x8f")) -- U+25CF BLACK CIRCLE (dirty)
+    end)
+
+    it("no badge for active worktree (uses highlight instead)", function()
+      local wt_map = { [42] = { path = "/wt", branch = "feat/issue-42", active = true } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, wt_map)
+      -- Active worktrees use OkubanCardActive highlight, no badge
+      assert.is_falsy(result:match("\xe2\xac\xa4")) -- No U+2B24
+      assert.is_falsy(result:match("\xe2\x97\x8b")) -- No U+25CB
+      assert.is_falsy(result:match("\xe2\x97\x8f")) -- No U+25CF
+      assert.truthy(result:match("Test")) -- Title still present
+    end)
+
+    it("no badge when issue not in worktree map", function()
+      local wt_map = { [99] = { path = "/wt", branch = "feat/issue-99" } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, wt_map)
+      assert.is_falsy(result:match("\xe2\x97\x8b"))
+      assert.is_falsy(result:match("\xe2\x97\x8f"))
+      assert.is_falsy(result:match("\xe2\xac\xa4"))
+    end)
+
+    it("no badge when worktree_map is nil", function()
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, nil)
+      assert.is_falsy(result:match("\xe2\x97\x8b"))
+      assert.is_falsy(result:match("\xe2\x97\x8f"))
+    end)
   end)
 
   describe("render_column", function()

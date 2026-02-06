@@ -138,28 +138,46 @@ function M.format_compact_metadata(issue, type_tag)
 end
 
 --- Render a single issue as a compact one-line card.
+--- If the issue has a linked worktree (worktree_map provided), shows [WT] badge.
 ---@param issue table { number, title }
 ---@param width integer Available width for text
+---@param worktree_map table<integer, table>|nil Map of issue number → worktree info
 ---@return string
-function M.render_card(issue, width)
+function M.render_card(issue, width, worktree_map)
   local title = M.strip_commit_prefix(issue.title or "")
   local prefix = " #" .. issue.number .. " "
-  local avail = width - #prefix
+
+  -- Check for worktree badge (active worktrees use highlight color instead of badge)
+  local badge = ""
+  if worktree_map and worktree_map[issue.number] then
+    local wt = worktree_map[issue.number]
+    if wt.active then
+      -- No badge — active worktrees are indicated via OkubanCardActive highlight
+      badge = ""
+    elseif wt.dirty then
+      badge = " [\xe2\x97\x8f]" -- U+25CF BLACK CIRCLE (dirty)
+    else
+      badge = " [\xe2\x97\x8b]" -- U+25CB WHITE CIRCLE (clean)
+    end
+  end
+
+  local avail = width - #prefix - #badge
   if avail < 1 then
-    return prefix
+    return prefix .. badge
   end
   if #title > avail then
     title = title:sub(1, avail - 1) .. ELLIPSIS
   end
-  return prefix .. title
+  return prefix .. title .. badge
 end
 
 --- Render all cards for a column as a compact list (one line per card).
 ---@param issues table[] List of issues
 ---@param width integer Available width for text
+---@param worktree_map table<integer, table>|nil Map of issue number → worktree info
 ---@return string[] lines
 ---@return table[] card_ranges Array of { start_line: integer, end_line: integer } (1-indexed)
-function M.render_column(issues, width)
+function M.render_column(issues, width, worktree_map)
   if #issues == 0 then
     return { "  (no issues)" }, {}
   end
@@ -167,19 +185,20 @@ function M.render_column(issues, width)
   local lines = {}
   local card_ranges = {}
   for i, issue in ipairs(issues) do
-    table.insert(lines, M.render_card(issue, width))
+    table.insert(lines, M.render_card(issue, width, worktree_map))
     table.insert(card_ranges, { start_line = i, end_line = i })
   end
   return lines, card_ranges
 end
 
 --- Render preview pane content for the selected issue.
---- Shows full title (word-wrapped), TLDR from body, and metadata.
+--- Shows full title (word-wrapped), TLDR from body, metadata, and worktree status.
 ---@param issue table|nil { number, title, body, assignees, labels }
 ---@param width integer Available width
 ---@param height integer Number of lines in preview pane
+---@param worktree_map table<integer, table>|nil Map of issue number → worktree info
 ---@return string[]
-function M.render_preview(issue, width, height)
+function M.render_preview(issue, width, height, worktree_map)
   if not issue then
     local lines = {}
     for _ = 1, height do
@@ -233,6 +252,25 @@ function M.render_preview(issue, width, height)
   if meta and #lines < height - 1 then
     table.insert(lines, "")
     table.insert(lines, meta)
+  end
+
+  -- Worktree status
+  if worktree_map and worktree_map[issue.number] and #lines < height - 1 then
+    local wt = worktree_map[issue.number]
+    local parts = {}
+    if wt.active then
+      table.insert(parts, "\xe2\xac\xa4 active") -- U+2B24
+    end
+    if wt.dirty then
+      table.insert(parts, "\xe2\x97\x8f dirty") -- U+25CF
+    else
+      table.insert(parts, "\xe2\x97\x8b clean") -- U+25CB
+    end
+    if wt.branch then
+      table.insert(parts, wt.branch)
+    end
+    table.insert(lines, "")
+    table.insert(lines, table.concat(parts, " \xc2\xb7 "))
   end
 
   -- Pad to height
