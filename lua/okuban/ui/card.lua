@@ -270,13 +270,10 @@ function M.render_preview(issue, width, height, worktree_map, claude_sessions)
     table.insert(lines, meta)
   end
 
-  -- Worktree status
+  -- Worktree status (active is indicated by orange highlight in column, not here)
   if worktree_map and worktree_map[issue.number] and #lines < height - 1 then
     local wt = worktree_map[issue.number]
     local parts = {}
-    if wt.active then
-      table.insert(parts, "\xe2\xac\xa4 active") -- U+2B24
-    end
     if wt.dirty then
       table.insert(parts, "\xe2\x97\x8f dirty") -- U+25CF
     else
