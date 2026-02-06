@@ -20,7 +20,8 @@ end
 ---@param issue table
 ---@param board table Board instance
 ---@return table[] actions Array of { key, label, callback }
-local function build_actions(issue, board)
+--- @private Exposed for testing only.
+function M._build_actions(issue, board)
   local actions = {}
 
   -- Move to column (always available — this is the triage mechanism)
@@ -45,76 +46,84 @@ local function build_actions(issue, board)
     end,
   })
 
-  -- Close issue
-  table.insert(actions, {
-    key = "c",
-    label = "Close issue",
-    callback = function()
-      M.close()
-      vim.schedule(function()
-        local confirm = vim.fn.confirm("Close issue #" .. issue.number .. "?", "&Yes\n&No", 2)
-        if confirm ~= 1 then
-          return
-        end
-        api.close_issue(issue.number, function(ok, err)
+  local is_open = issue.state ~= "CLOSED"
+
+  -- Close issue (only for open issues)
+  if is_open then
+    table.insert(actions, {
+      key = "c",
+      label = "Close issue",
+      callback = function()
+        M.close()
+        vim.schedule(function()
+          local confirm = vim.fn.confirm("Close issue #" .. issue.number .. "?", "&Yes\n&No", 2)
+          if confirm ~= 1 then
+            return
+          end
+          api.close_issue(issue.number, function(ok, err)
+            if ok then
+              utils.notify("Closed #" .. issue.number)
+              api.fetch_all_columns(function(data)
+                if data then
+                  board:refresh(data)
+                end
+              end)
+            else
+              utils.notify("Failed to close #" .. issue.number .. ": " .. (err or ""), vim.log.levels.ERROR)
+            end
+          end)
+        end)
+      end,
+    })
+  end
+
+  -- Assign to me (only for open issues)
+  if is_open then
+    table.insert(actions, {
+      key = "a",
+      label = "Assign to me",
+      callback = function()
+        M.close()
+        api.assign_issue(issue.number, function(ok, err)
           if ok then
-            utils.notify("Closed #" .. issue.number)
+            utils.notify("Assigned #" .. issue.number .. " to you")
             api.fetch_all_columns(function(data)
               if data then
                 board:refresh(data)
               end
             end)
           else
-            utils.notify("Failed to close #" .. issue.number .. ": " .. (err or ""), vim.log.levels.ERROR)
+            utils.notify("Failed to assign #" .. issue.number .. ": " .. (err or ""), vim.log.levels.ERROR)
           end
         end)
-      end)
-    end,
-  })
+      end,
+    })
+  end
 
-  -- Assign to me
-  table.insert(actions, {
-    key = "a",
-    label = "Assign to me",
-    callback = function()
-      M.close()
-      api.assign_issue(issue.number, function(ok, err)
-        if ok then
-          utils.notify("Assigned #" .. issue.number .. " to you")
-          api.fetch_all_columns(function(data)
-            if data then
-              board:refresh(data)
+  -- Code with Claude (only for open issues, when enabled and available)
+  if is_open then
+    local claude_cfg = config.get().claude
+    if claude_cfg.enabled then
+      local claude_mod = require("okuban.claude")
+      if claude_mod.is_available() then
+        table.insert(actions, {
+          key = "x",
+          label = "Code with Claude",
+          callback = function()
+            M.close()
+            local session = claude_mod.get_session(issue.number)
+            if session and session.status == "running" then
+              utils.notify("Claude is already working on #" .. issue.number)
+              return
             end
-          end)
-        else
-          utils.notify("Failed to assign #" .. issue.number .. ": " .. (err or ""), vim.log.levels.ERROR)
-        end
-      end)
-    end,
-  })
-
-  -- Code with Claude (only when enabled and available)
-  local claude_cfg = config.get().claude
-  if claude_cfg.enabled then
-    local claude_mod = require("okuban.claude")
-    if claude_mod.is_available() then
-      table.insert(actions, {
-        key = "x",
-        label = "Code with Claude",
-        callback = function()
-          M.close()
-          local session = claude_mod.get_session(issue.number)
-          if session and session.status == "running" then
-            utils.notify("Claude is already working on #" .. issue.number)
-            return
-          end
-          claude_mod.launch(issue, function(ok, err)
-            if not ok then
-              utils.notify("Failed: " .. (err or "unknown"), vim.log.levels.ERROR)
-            end
-          end)
-        end,
-      })
+            claude_mod.launch(issue, function(ok, err)
+              if not ok then
+                utils.notify("Failed: " .. (err or "unknown"), vim.log.levels.ERROR)
+              end
+            end)
+          end,
+        })
+      end
     end
   end
 
@@ -141,7 +150,7 @@ function M.open(board)
     return
   end
 
-  local actions = build_actions(issue, board)
+  local actions = M._build_actions(issue, board)
 
   -- Build display lines
   local title_text = "#" .. issue.number .. ": " .. (issue.title or "Untitled")
