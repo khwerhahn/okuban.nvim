@@ -35,6 +35,21 @@ function M.open()
       end
       board:populate(data)
 
+      -- First-open hint: if all kanban columns empty but unsorted has issues
+      if not board._hint_shown then
+        board._hint_shown = true
+        local all_empty = true
+        for _, col in ipairs(data.columns) do
+          if #col.issues > 0 then
+            all_empty = false
+            break
+          end
+        end
+        if all_empty and data.unsorted and #data.unsorted > 0 then
+          utils.notify("Tip: press Enter on a card to triage it into a column, or m to move it directly")
+        end
+      end
+
       -- Auto-focus: detect current issue and navigate to it
       local detect = require("okuban.detect")
       detect.detect_issue(function(issue_number)
