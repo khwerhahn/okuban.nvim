@@ -1,0 +1,40 @@
+# Neovim
+doc/tags
+
+# Lua
+luac.out
+*.lua.bak
+
+# LuaRocks
+*.rock
+*.src.rock
+lua_modules/
+.luarocks/
+
+# Dependencies
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+tags
+TAGS
+
+# Environment / Secrets
+.env
+.env.*
+
+# Claude Code
+context/
+.claude-session
+
+# Build artifacts
+dist/
+build/

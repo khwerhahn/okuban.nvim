@@ -1,4 +1,4 @@
-.PHONY: claude-code ensure-docker
+.PHONY: claude-code ensure-docker lint test check format
 
 # Ensure Docker is running (cross-platform: macOS and Windows)
 ensure-docker:
@@ -53,6 +53,22 @@ ensure-docker:
 		echo "❌ Docker is not installed. Please install Docker Desktop."; \
 		exit 1; \
 	fi
+
+lint: ## Run StyLua check and Luacheck
+	@echo "Checking formatting with StyLua..."
+	@stylua --check . || (echo "Run 'make format' to fix formatting"; exit 1)
+	@echo "Running Luacheck..."
+	@luacheck lua/ tests/
+
+test: ## Run plenary.nvim tests
+	@echo "Running tests..."
+	@nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua', sequential = true}"
+
+check: lint test ## Run lint + test (same as CI)
+
+format: ## Auto-format with StyLua
+	@stylua .
+	@echo "Formatted."
 
 claude-code: ensure-docker ## Start Claude Code with comprehensive tool permissions including compound commands
 	@echo "🔄 Checking for Claude Code updates..."

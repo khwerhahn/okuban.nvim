@@ -1,84 +1,62 @@
 ---
 name: gh-graphql
-description: Test and explore GitHub Projects v2 GraphQL queries using the gh CLI
-argument-hint: "[query-description]"
+description: Test and explore GitHub issue/label CLI commands for the kanban board
+argument-hint: "[command-description]"
 allowed-tools: Bash, Read, Write, Grep
 ---
 
-# GitHub GraphQL Query Explorer
+# GitHub CLI Query Explorer
 
-Build and test GitHub Projects v2 GraphQL queries.
+Build and test `gh` CLI commands for issue and label management.
 
 ## Usage
 
-- `/gh-graphql list my projects` — Build and test a query to list projects
-- `/gh-graphql get items for project X` — Fetch items from a specific project
-- `/gh-graphql` — Interactive exploration of the API
+- `/gh-graphql list issues with label` — Build and test a gh issue list command
+- `/gh-graphql move card between columns` — Test label swap commands
+- `/gh-graphql` — Interactive exploration of the gh CLI
 
 ## Steps
 
 1. **Check auth**: Run `gh auth status` to verify GitHub access
-2. **Build query**: Construct the GraphQL query for `$ARGUMENTS`
-3. **Test it**: Execute via `gh api graphql -f query='...'`
+2. **Build command**: Construct the `gh` command for `$ARGUMENTS`
+3. **Test it**: Execute the command and inspect output
 4. **Iterate**: Refine based on the response
-5. **Save**: Write working queries to `lua/okuban/queries/` as reusable strings
+5. **Save**: Write working patterns to `lua/okuban/` as reusable command templates
 
-## Key Endpoints
+## Key Commands
 
-### List user projects
+### List issues per column
 ```bash
-gh api graphql -f query='
-  query {
-    viewer {
-      projectsV2(first: 20) {
-        nodes { id title number }
-      }
-    }
-  }
-'
+gh issue list --label "okuban:todo" --json number,title,assignees,labels,state
 ```
 
-### Get project columns and items
+### Move a card (label swap)
 ```bash
-gh api graphql -f query='
-  query($id: ID!) {
-    node(id: $id) {
-      ... on ProjectV2 {
-        title
-        fields(first: 20) {
-          nodes {
-            ... on ProjectV2SingleSelectField {
-              name
-              options { id name }
-            }
-          }
-        }
-        items(first: 50) {
-          nodes {
-            id
-            fieldValues(first: 10) {
-              nodes {
-                ... on ProjectV2ItemFieldSingleSelectValue {
-                  name field { ... on ProjectV2SingleSelectField { name } }
-                }
-              }
-            }
-            content {
-              ... on Issue { title number state }
-              ... on PullRequest { title number state }
-              ... on DraftIssue { title }
-            }
-          }
-        }
-      }
-    }
-  }
-' -f id='PROJECT_NODE_ID'
+gh issue edit 42 --remove-label "okuban:todo" --add-label "okuban:in-progress"
+```
+
+### Get issue details
+```bash
+gh issue view 42 --json title,body,labels,assignees,comments,state
+```
+
+### Setup labels
+```bash
+gh label create "okuban:backlog" --color "c5def5" --description "Kanban: Not yet planned"
+gh label create "okuban:todo" --color "0075ca" --description "Kanban: Planned for work"
+gh label create "okuban:in-progress" --color "fbca04" --description "Kanban: Actively being worked on"
+gh label create "okuban:review" --color "d4c5f9" --description "Kanban: Awaiting review"
+gh label create "okuban:done" --color "0e8a16" --description "Kanban: Completed"
+```
+
+### List all labels
+```bash
+gh label list --json name,color,description
 ```
 
 ## Output
 
 Always provide:
-1. The working query
+1. The working command
 2. Example response (trimmed)
 3. Notes on pagination or rate limits if relevant

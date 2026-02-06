@@ -28,7 +28,7 @@ The plugin has two tiers of dependencies:
 
 **Hard requirement — `gh` CLI**:
 - The board cannot function at all without `gh`. Every board operation (fetching projects, listing issues, closing issues, opening in browser) depends on it.
-- Must be installed AND authenticated AND have the `read:project` scope.
+- Must be installed AND authenticated AND have the `repo` scope (default in `gh auth login`).
 
 **Soft requirement — `claude` CLI**:
 - Only needed for the "Code autonomously" action (action menu option `c`).
@@ -49,12 +49,12 @@ When the user runs `:Okuban`, the plugin runs these checks before rendering. All
 - Speed: ~5ms, local only, never prompts
 - On failure: hard error — `"Not authenticated. Run: gh auth login"`
 
-**Step 3 — Check `read:project` scope**:
-- Method: run a lightweight test query: `gh api graphql -f query='{ viewer { projectsV2(first:1) { totalCount } } }'`
+**Step 3 — Check `repo` scope (verify access)**:
+- Method: run a lightweight test command: `gh issue list --limit 1 --json number`
 - Speed: ~400ms (network call, run async — show a loading indicator)
-- On `INSUFFICIENT_SCOPES` error: hard error — `"Missing read:project scope. Run: gh auth refresh --scopes read:project"`
+- On auth/scope error: hard error — `"Missing repo scope or no access to this repository. Run: gh auth refresh --scopes repo"`
 - On success: proceed to render the board
-- Why a test query instead of parsing scopes: fine-grained PATs and GitHub App tokens don't expose scopes via headers. The test query works universally for all token types.
+- The `repo` scope is granted by default in `gh auth login`. This step mostly catches edge cases like expired tokens or fine-grained PATs with limited repo access.
 
 **Step 4 — Check `claude` availability (non-blocking)**:
 - Method: `vim.fn.executable("claude") == 1`
@@ -92,10 +92,7 @@ A new user installing the plugin for the first time:
 3. Plugin: "Not authenticated. Run: gh auth login"
    → User runs gh auth login, authenticates in browser, runs :Okuban again
 
-4. Plugin: "Missing read:project scope. Run: gh auth refresh --scopes read:project"
-   → User runs the command, authorizes in browser, runs :Okuban again
-
-5. Board opens successfully. "Claude Code not found. Autonomous coding disabled."
+4. Board opens successfully. "Claude Code not found. Autonomous coding disabled."
    → User can use the full board except the Code action.
    → If they install claude later, Code action becomes available next session.
 ```
@@ -106,7 +103,7 @@ A new user installing the plugin for the first time:
 1. User runs :Okuban
 2. Plugin checks gh (instant) ✓, checks auth (5ms) ✓
 3. Board starts rendering, shows loading indicator
-4. Test query returns (400ms) ✓ — board populates with project data
+4. Issue list returns (400ms) ✓ — board populates with issues per label column
 5. Claude check (instant) ✓ — Code action enabled
 6. Board fully interactive
 ```
@@ -121,7 +118,7 @@ All error messages follow the pattern:
 Examples:
 - `"okuban: gh CLI not found. Install from https://cli.github.com"`
 - `"okuban: Not authenticated with GitHub. Run: gh auth login"`
-- `"okuban: Missing required scope 'read:project'. Run: gh auth refresh --scopes read:project"`
+- `"okuban: Cannot access this repository. Check your gh auth scopes. Run: gh auth refresh --scopes repo"`
 - `"okuban: Claude Code not installed. Autonomous coding disabled. Install from https://claude.ai/install.sh"`
 - `"okuban: Claude Code authentication failed. Run: claude to log in."`
 
@@ -142,11 +139,11 @@ require("okuban").setup({
 If the user works with GHES:
 - Detect hostname from the git remote URL in `.git/config`
 - Pass `--hostname <host>` to `gh auth status` and `gh auth token`
-- GHES may not support all GraphQL features — handle gracefully
+- GHES may have different label defaults or API behavior — handle gracefully
 
 ### Token Types That Work
 
-All of these token types work with `gh api graphql` and the plugin:
+All of these token types work with `gh issue list/edit` and the plugin:
 
 | Token Type | How to set up | Scope inspection |
 |------------|--------------|-----------------|
@@ -171,7 +168,7 @@ Note: Free plan users do NOT have Claude Code CLI access. Pro ($20/month) is the
 ### Caching
 
 - `gh` auth status: checked once on board open, cached for the session
-- `read:project` scope: verified once on board open via test query, cached for the session
+- `repo` scope: verified once on board open via test issue list, cached for the session
 - `claude` availability: checked once on board open (binary exists), cached for the session
 - `claude` auth: checked once on first "Code" action, cached for the session
 - All caches reset on new `:Okuban` session or `:OkubanRefresh`
@@ -182,11 +179,11 @@ Note: Free plan users do NOT have Claude Code CLI access. Pro ($20/month) is the
 
 ### Goal
 
-Display GitHub Projects v2 columns side-by-side in a floating overlay, with sticky column headers and independent vertical scrolling per column.
+Display label-based kanban columns side-by-side in a floating overlay, with sticky column headers and independent vertical scrolling per column.
 
 ### Approach: One Floating Window Per Column
 
-Each project column (e.g., "Todo", "In Progress", "Done") becomes its own Neovim floating window. These windows are positioned side-by-side using calculated `col` offsets within a conceptual board area.
+Each kanban column (e.g., "Todo", "In Progress", "Done") becomes its own Neovim floating window. These windows are positioned side-by-side using calculated `col` offsets within a conceptual board area.
 
 ### Why Not a Single Buffer?
 
@@ -200,7 +197,7 @@ A single buffer with columns rendered as padded text was considered and rejected
 Column names stay visible at the top while cards scroll. Three viable approaches:
 
 1. **`winbar`** (recommended) — Set a window-local winbar on each column window. Supports highlight groups and statusline-style format strings. Stays pinned at the top as content scrolls.
-2. **Window `title`** — The `title` param on `nvim_open_win` (Neovim 0.9+) renders text in the window border. Simpler but less flexible styling.
+2. **Window `title`** — The `title` param on `nvim_open_win` renders text in the window border. Simpler but less flexible styling.
 3. **Separate header windows** — A 1-line floating window above each column's content window. Maximum control but more windows to manage.
 
 ### Positioning Formula
@@ -230,7 +227,7 @@ Cards are separated by blank lines. The selected card receives a highlight via e
 
 ### Two-Phase Rendering
 
-1. **Phase 1 (immediate)**: Render columns and cards with basic info from the GraphQL response. Show worktree badges (`[WT]`) from `git worktree list --porcelain` (~4ms).
+1. **Phase 1 (immediate)**: Render columns and cards with basic info from `gh issue list` responses. Show worktree badges (`[WT]`) from `git worktree list --porcelain` (~4ms).
 2. **Phase 2 (async)**: Fire parallel `vim.system()` calls for worktree dirty/clean status, ahead/behind counts. Update card indicators progressively as results arrive.
 
 ### Resize Handling
@@ -316,9 +313,8 @@ The patterns should be user-configurable via `config.issue_detection.branch_patt
 Scan the last N commit subjects for `#42`, `Fixes #42`, `Closes #42` references. Count occurrences. Most-referenced issue is the best candidate. Useful as a confirmation signal for Tier 1.
 
 **Tier 3 — GitHub CLI (authoritative, ~400ms)**:
-Run `gh pr view --json closingIssuesReferences,projectItems` to get:
+Run `gh pr view --json closingIssuesReferences` to get:
 - Which issues the current branch's PR closes
-- Which project board column the issue is in
 
 This is the most reliable signal but requires a network call. Run async; use Tier 1 result for immediate focus, then correct if Tier 3 disagrees.
 
@@ -434,7 +430,7 @@ Run `git worktree list --porcelain` and parse the output. Each entry provides:
 Parse using attribute-per-line approach (not fixed line counts — bare repos produce different output).
 
 **Step 2 — Map worktree to issue**:
-Extract issue number from the worktree's branch name using the same patterns as auto-focus detection. Cross-reference against the project's issue list from the GraphQL API to confirm the match.
+Extract issue number from the worktree's branch name using the same patterns as auto-focus detection. Cross-reference against the board's issue list to confirm the match.
 
 **Step 3 — Get status (async, ~50-500ms per worktree)**:
 For each worktree with a matched issue, fire parallel async calls:
@@ -613,7 +609,9 @@ require("okuban").setup({
 
 | Tool | Purpose |
 |------|---------|
-| `gh api graphql` | Fetch project data (columns, cards, fields) |
+| `gh issue list --label <label> --json ...` | Fetch issues per column (label-based) |
+| `gh issue edit --remove-label --add-label` | Move cards between columns (label swap) |
+| `gh label create` | Create kanban labels on a repo |
 | `gh pr view` | Get current branch's PR and linked issues |
 | `gh issue view` | Fetch issue details, open in browser |
 | `gh issue close` | Close an issue |
