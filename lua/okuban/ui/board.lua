@@ -130,6 +130,14 @@ function Board:open(data)
   -- Store column metadata for navigation
   self.columns = cols
 
+  -- Set up navigation
+  local Navigation = require("okuban.ui.navigation")
+  self.navigation = Navigation.new(self)
+  for _, buf in ipairs(self.buffers) do
+    self.navigation:setup_keymaps(buf)
+  end
+  self.navigation:highlight_current()
+
   -- VimResized handler
   vim.api.nvim_create_autocmd("VimResized", {
     group = self.augroup,
@@ -197,6 +205,7 @@ function Board:close()
   self.buffers = {}
   self.columns = nil
   self.data = nil
+  self.navigation = nil
   instance = nil
 end
 
