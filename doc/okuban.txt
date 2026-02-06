@@ -1,0 +1,111 @@
+*okuban.txt*        GitHub Issues Kanban Board for Neovim
+
+Author:   khwerhahn
+License:  MIT
+Homepage: https://github.com/khwerhahn/okuban.nvim
+
+==============================================================================
+CONTENTS                                                     *okuban-contents*
+
+  1. Introduction ...................... |okuban-introduction|
+  2. Requirements ...................... |okuban-requirements|
+  3. Setup ............................. |okuban-setup|
+  4. Commands .......................... |okuban-commands|
+  5. Keybindings ....................... |okuban-keybindings|
+  6. Configuration ..................... |okuban-configuration|
+
+==============================================================================
+1. INTRODUCTION                                          *okuban-introduction*
+
+okuban.nvim turns GitHub issues into an interactive kanban board inside
+Neovim. Issues are sorted into columns based on labels with the `okuban:`
+prefix. No GitHub Projects setup required.
+
+==============================================================================
+2. REQUIREMENTS                                          *okuban-requirements*
+
+- Neovim 0.10+
+- `gh` CLI (https://cli.github.com) — installed and authenticated
+- `repo` scope (default in `gh auth login`)
+
+==============================================================================
+3. SETUP                                                       *okuban-setup*
+
+Using lazy.nvim: >lua
+  {
+    "khwerhahn/okuban.nvim",
+    cmd = { "Okuban", "OkubanSetup", "OkubanRefresh", "OkubanClose" },
+    opts = {},
+  }
+<
+
+Then run `:OkubanSetup` to create the kanban labels on your repo.
+
+==============================================================================
+4. COMMANDS                                                 *okuban-commands*
+
+:Okuban                                                            *:Okuban*
+  Open the kanban board for the current repository.
+
+:OkubanClose                                                  *:OkubanClose*
+  Close the kanban board.
+
+:OkubanRefresh                                              *:OkubanRefresh*
+  Refresh the kanban board with latest data from GitHub.
+
+:OkubanSetup [--full]                                        *:OkubanSetup*
+  Create kanban labels on the current repository.
+  Without arguments: creates 5 column labels (okuban:backlog, okuban:todo,
+  okuban:in-progress, okuban:review, okuban:done).
+  With `--full`: also creates type, priority, and community labels (~17 total).
+
+==============================================================================
+5. KEYBINDINGS                                           *okuban-keybindings*
+
+All keybindings are buffer-local to the board windows and configurable
+via the `keymaps` option in |okuban-configuration|.
+
+  Key   Action ~
+  h     Move to previous column
+  l     Move to next column
+  k     Move to previous card
+  j     Move to next card
+  m     Move card to another column
+  r     Refresh board
+  ?     Toggle help
+  q     Close board
+
+==============================================================================
+6. CONFIGURATION                                       *okuban-configuration*
+
+Pass options to `setup()`: >lua
+  require("okuban").setup({
+    columns = {
+      { label = "okuban:backlog",     name = "Backlog",     color = "#c5def5" },
+      { label = "okuban:todo",        name = "Todo",        color = "#0075ca" },
+      { label = "okuban:in-progress", name = "In Progress", color = "#fbca04" },
+      { label = "okuban:review",      name = "Review",      color = "#d4c5f9" },
+      { label = "okuban:done",        name = "Done",        color = "#0e8a16" },
+    },
+    show_unsorted = true,
+    skip_preflight = false,
+    github_hostname = nil,
+    keymaps = {
+      column_left  = "h",
+      column_right = "l",
+      card_up      = "k",
+      card_down    = "j",
+      move_card    = "m",
+      close        = "q",
+      refresh      = "r",
+      help         = "?",
+    },
+    claude = {
+      enabled = true,
+      max_budget_usd = 5.00,
+      max_turns = 30,
+    },
+  })
+<
+
+ vim:tw=78:ft=help:norl:

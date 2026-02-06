@@ -178,6 +178,11 @@ function Navigation:setup_keymaps(buf)
     local move = require("okuban.ui.move")
     move.prompt_move(self.board)
   end, opts)
+
+  vim.keymap.set("n", keymaps.help, function()
+    local help = require("okuban.ui.help")
+    help.open()
+  end, opts)
 end
 
 return Navigation
