@@ -1,4 +1,5 @@
 local api = require("okuban.api")
+local config = require("okuban.config")
 local utils = require("okuban.utils")
 
 local M = {}
@@ -91,6 +92,31 @@ local function build_actions(issue, board)
       end)
     end,
   })
+
+  -- Code with Claude (only when enabled and available)
+  local claude_cfg = config.get().claude
+  if claude_cfg.enabled then
+    local claude_mod = require("okuban.claude")
+    if claude_mod.is_available() then
+      table.insert(actions, {
+        key = "x",
+        label = "Code with Claude",
+        callback = function()
+          M.close()
+          local session = claude_mod.get_session(issue.number)
+          if session and session.status == "running" then
+            utils.notify("Claude is already working on #" .. issue.number)
+            return
+          end
+          claude_mod.launch(issue, function(ok, err)
+            if not ok then
+              utils.notify("Failed: " .. (err or "unknown"), vim.log.levels.ERROR)
+            end
+          end)
+        end,
+      })
+    end
+  end
 
   return actions
 end

@@ -261,6 +261,32 @@ describe("okuban.ui.card", function()
       assert.is_falsy(result:match("\xe2\x97\x8b"))
       assert.is_falsy(result:match("\xe2\x97\x8f"))
     end)
+
+    it("shows running badge for running Claude session", function()
+      local sessions = { [42] = { status = "running" } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, nil, sessions)
+      assert.truthy(result:match("\xe2\x96\xb6")) -- U+25B6 RIGHT-POINTING TRIANGLE
+    end)
+
+    it("shows completed badge for completed Claude session", function()
+      local sessions = { [42] = { status = "completed" } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, nil, sessions)
+      assert.truthy(result:match("\xe2\x9c\x93")) -- U+2713 CHECK MARK
+    end)
+
+    it("shows failed badge for failed Claude session", function()
+      local sessions = { [42] = { status = "failed" } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, nil, sessions)
+      assert.truthy(result:match("\xe2\x9c\x97")) -- U+2717 BALLOT X
+    end)
+
+    it("no session badge when no session exists", function()
+      local sessions = { [99] = { status = "running" } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, nil, sessions)
+      assert.is_falsy(result:match("\xe2\x96\xb6"))
+      assert.is_falsy(result:match("\xe2\x9c\x93"))
+      assert.is_falsy(result:match("\xe2\x9c\x97"))
+    end)
   end)
 
   describe("render_column", function()

@@ -139,11 +139,13 @@ end
 
 --- Render a single issue as a compact one-line card.
 --- If the issue has a linked worktree (worktree_map provided), shows [WT] badge.
+--- If the issue has an active Claude session, shows status badge.
 ---@param issue table { number, title }
 ---@param width integer Available width for text
 ---@param worktree_map table<integer, table>|nil Map of issue number → worktree info
+---@param claude_sessions table<integer, table>|nil Map of issue number → session info
 ---@return string
-function M.render_card(issue, width, worktree_map)
+function M.render_card(issue, width, worktree_map, claude_sessions)
   local title = M.strip_commit_prefix(issue.title or "")
   local prefix = " #" .. issue.number .. " "
 
@@ -161,6 +163,18 @@ function M.render_card(issue, width, worktree_map)
     end
   end
 
+  -- Session status badge
+  if claude_sessions and claude_sessions[issue.number] then
+    local s = claude_sessions[issue.number]
+    if s.status == "running" then
+      badge = badge .. " [\xe2\x96\xb6]" -- U+25B6 BLACK RIGHT-POINTING TRIANGLE
+    elseif s.status == "completed" then
+      badge = badge .. " [\xe2\x9c\x93]" -- U+2713 CHECK MARK
+    elseif s.status == "failed" then
+      badge = badge .. " [\xe2\x9c\x97]" -- U+2717 BALLOT X
+    end
+  end
+
   local avail = width - #prefix - #badge
   if avail < 1 then
     return prefix .. badge
@@ -175,9 +189,10 @@ end
 ---@param issues table[] List of issues
 ---@param width integer Available width for text
 ---@param worktree_map table<integer, table>|nil Map of issue number → worktree info
+---@param claude_sessions table<integer, table>|nil Map of issue number → session info
 ---@return string[] lines
 ---@return table[] card_ranges Array of { start_line: integer, end_line: integer } (1-indexed)
-function M.render_column(issues, width, worktree_map)
+function M.render_column(issues, width, worktree_map, claude_sessions)
   if #issues == 0 then
     return { "  (no issues)" }, {}
   end
@@ -185,20 +200,21 @@ function M.render_column(issues, width, worktree_map)
   local lines = {}
   local card_ranges = {}
   for i, issue in ipairs(issues) do
-    table.insert(lines, M.render_card(issue, width, worktree_map))
+    table.insert(lines, M.render_card(issue, width, worktree_map, claude_sessions))
     table.insert(card_ranges, { start_line = i, end_line = i })
   end
   return lines, card_ranges
 end
 
 --- Render preview pane content for the selected issue.
---- Shows full title (word-wrapped), TLDR from body, metadata, and worktree status.
+--- Shows full title (word-wrapped), TLDR from body, metadata, worktree status, and session info.
 ---@param issue table|nil { number, title, body, assignees, labels }
 ---@param width integer Available width
 ---@param height integer Number of lines in preview pane
 ---@param worktree_map table<integer, table>|nil Map of issue number → worktree info
+---@param claude_sessions table<integer, table>|nil Map of issue number → session info
 ---@return string[]
-function M.render_preview(issue, width, height, worktree_map)
+function M.render_preview(issue, width, height, worktree_map, claude_sessions)
   if not issue then
     local lines = {}
     for _ = 1, height do
@@ -254,13 +270,10 @@ function M.render_preview(issue, width, height, worktree_map)
     table.insert(lines, meta)
   end
 
-  -- Worktree status
+  -- Worktree status (active is indicated by orange highlight in column, not here)
   if worktree_map and worktree_map[issue.number] and #lines < height - 1 then
     local wt = worktree_map[issue.number]
     local parts = {}
-    if wt.active then
-      table.insert(parts, "\xe2\xac\xa4 active") -- U+2B24
-    end
     if wt.dirty then
       table.insert(parts, "\xe2\x97\x8f dirty") -- U+25CF
     else
@@ -271,6 +284,29 @@ function M.render_preview(issue, width, height, worktree_map)
     end
     table.insert(lines, "")
     table.insert(lines, table.concat(parts, " \xc2\xb7 "))
+  end
+
+  -- Claude session status
+  if claude_sessions and issue and claude_sessions[issue.number] and #lines < height - 1 then
+    local s = claude_sessions[issue.number]
+    local session_parts = {}
+    if s.status == "running" then
+      table.insert(session_parts, "\xe2\x96\xb6 Claude running") -- U+25B6
+    elseif s.status == "completed" then
+      table.insert(session_parts, "\xe2\x9c\x93 Claude completed") -- U+2713
+    elseif s.status == "failed" then
+      table.insert(session_parts, "\xe2\x9c\x97 Claude failed") -- U+2717
+    end
+    if s.cost_usd then
+      table.insert(session_parts, string.format("$%.2f", s.cost_usd))
+    end
+    if s.num_turns then
+      table.insert(session_parts, s.num_turns .. " turns")
+    end
+    if #session_parts > 0 then
+      table.insert(lines, "")
+      table.insert(lines, table.concat(session_parts, " \xc2\xb7 "))
+    end
   end
 
   -- Pad to height

@@ -1,4 +1,5 @@
 local card = require("okuban.ui.card")
+local claude = require("okuban.claude")
 local config = require("okuban.config")
 local utils = require("okuban.utils")
 local worktree = require("okuban.worktree")
@@ -221,7 +222,8 @@ function Board:update_preview(issue)
   local num_cols = #self.windows
   local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines)
   local inner_width = layout.board_width - 2
-  local lines = card.render_preview(issue, inner_width, layout.preview_height, self.worktree_map)
+  local sessions = claude.get_all_sessions()
+  local lines = card.render_preview(issue, inner_width, layout.preview_height, self.worktree_map, sessions)
 
   vim.bo[self.preview_buf].modifiable = true
   vim.api.nvim_buf_set_lines(self.preview_buf, 0, -1, false, lines)
@@ -432,6 +434,7 @@ function Board:populate(data)
   -- Fetch worktree map (sync, ~4ms) for card badges
   local wt_map = worktree.fetch_worktree_map()
   self.worktree_map = wt_map
+  local sessions = claude.get_all_sessions()
 
   for i, col in ipairs(cols) do
     local buf = self.buffers[i]
@@ -439,7 +442,7 @@ function Board:populate(data)
 
     if buf and vim.api.nvim_buf_is_valid(buf) then
       local inner_width = layout.col_width - 2
-      local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map)
+      local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map, sessions)
       col.card_ranges = card_ranges
 
       vim.bo[buf].modifiable = true
@@ -478,7 +481,7 @@ function Board:populate(data)
       local buf = self.buffers[i]
       if buf and vim.api.nvim_buf_is_valid(buf) then
         local inner_width = layout.col_width - 2
-        local lines, card_ranges = card.render_column(col.issues, inner_width, enriched_map)
+        local lines, card_ranges = card.render_column(col.issues, inner_width, enriched_map, sessions)
         col.card_ranges = card_ranges
         vim.bo[buf].modifiable = true
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -534,6 +537,7 @@ function Board:open(data)
   -- Fetch worktree map for card badges
   local wt_map = worktree.fetch_worktree_map()
   self.worktree_map = wt_map
+  local sessions = claude.get_all_sessions()
 
   for i, col in ipairs(cols) do
     local buf = vim.api.nvim_create_buf(false, true)
@@ -543,7 +547,7 @@ function Board:open(data)
     vim.bo[buf].filetype = "okuban"
 
     local inner_width = layout.col_width - 2
-    local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map)
+    local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map, sessions)
     col.card_ranges = card_ranges
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     vim.bo[buf].modifiable = false
