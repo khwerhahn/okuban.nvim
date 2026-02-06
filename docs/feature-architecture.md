@@ -11,8 +11,9 @@ This document details the design, user flows, and implementation approaches for 
 3. [Semantic Navigation (hjkl)](#3-semantic-navigation-hjkl)
 4. [Auto-Focus on Current Issue](#4-auto-focus-on-current-issue)
 5. [Action Menu](#5-action-menu)
-6. [Worktree Status Indicators](#6-worktree-status-indicators)
-7. [Autonomous Claude Code Sessions](#7-autonomous-claude-code-sessions)
+6. [Onboarding & Triage](#6-onboarding--triage)
+7. [Worktree Status Indicators](#7-worktree-status-indicators)
+8. [Autonomous Claude Code Sessions](#8-autonomous-claude-code-sessions)
 
 ---
 
@@ -360,41 +361,57 @@ A small floating window appears near the selected card with labeled options. Eac
 
 1. User navigates to a card with hjkl
 2. User presses `<CR>` to open the action menu
-3. A small floating window appears:
+3. A small floating window appears near the card:
 
 ```
-╭─── Actions ───╮
-│  a  View       │
-│  b  Close      │
-│  c  Code       │
-╰────────────────╯
+╭─ #42: Add OAuth login flow ──╮
+│                                │
+│  [m] Move to column...         │
+│  [v] View in browser           │
+│  [c] Close issue               │
+│  [a] Assign to...              │
+│  [w] Code with Claude          │
+│                                │
+│  [q] Cancel                    │
+╰────────────────────────────────╯
 ```
 
-4. User presses `a`, `b`, or `c` to trigger the action
+4. User presses a single key to trigger the action
 5. Menu closes immediately
 6. Action executes (possibly with a confirmation step)
 7. Pressing `<Esc>` or `q` dismisses the menu without acting
 
 ### Action Details
 
-**a — View in browser**:
+**m — Move to column** (core action, also available via `m` key outside menu):
+- Opens a `vim.ui.select()` picker with available columns (excluding current)
+- Runs `gh issue edit NUMBER --remove-label OLD --add-label NEW` async
+- On success: triggers board refresh, card appears in new column
+- This is the primary triage mechanism — users move issues from Unsorted into columns
+- Also used for normal kanban workflow (todo → in-progress → review → done)
+
+**v — View in browser**:
 - Opens the issue URL in the system default browser
 - Uses `vim.ui.open(url)` on Neovim 0.10+, falls back to `gh issue view NUMBER --web`
 - Instant, no confirmation needed
 
-**b — Close issue**:
+**c — Close issue**:
 - Shows a confirmation dialog via `vim.fn.confirm()` (default answer: No)
 - On confirm: runs `gh issue close NUMBER` async
-- On success: shows notification, triggers board refresh (card moves to "Done" or disappears depending on project config)
+- On success: shows notification, triggers board refresh
 - On cancel: menu closes, nothing happens
 
-**c — Code autonomously**:
+**a — Assign**:
+- Assigns the issue to yourself: `gh issue edit NUMBER --add-assignee @me`
+- Shows notification on success
+
+**w — Code with Claude** (requires claude CLI):
 - Creates a git worktree for the issue (if one doesn't already exist)
 - Pre-fetches issue context via `gh issue view NUMBER --json title,body,labels,comments`
 - Launches Claude Code in headless mode (`claude -p`) in the worktree directory
 - Shows a notification that the session started
 - Updates the card with a running indicator
-- See [Section 7](#7-autonomous-claude-code-sessions) for full details
+- See [Section 8](#8-autonomous-claude-code-sessions) for full details
 
 ### Alternatives Considered
 
@@ -405,14 +422,80 @@ A small floating window appears near the selected card with labeled options. Eac
 ### Extensibility
 
 The action list is a table. Future actions can be added:
-- **Assign** — Assign the issue to yourself
-- **Label** — Add/remove labels
-- **Move** — Move to a different column
+- **Label** — Add/remove arbitrary labels
 - **Comment** — Add a comment
+- **Edit** — Edit title/body
 
 ---
 
-## 6. Worktree Status Indicators
+## 6. Onboarding & Triage
+
+### Goal
+
+Make the board immediately useful on any existing repo — whether it has 0 issues or 200 — without bulk operations, notification spam, or a separate import workflow.
+
+### Design Philosophy: The Board IS the Triage Tool
+
+There is no `:OkubanImport` command. Instead:
+
+- **Unsorted column = inbox.** Issues without `okuban:` labels naturally land here.
+- **Action menu = triage.** Press `<CR>` on any card → "Move to column..." → done.
+- **One notification per action.** Each move is a single `gh issue edit` call. No bulk spam.
+- **User controls the pace.** Triage 5 issues today, 10 tomorrow. No urgency.
+
+This is a deliberate design choice. Bulk-labeling 200 issues causes 200 email notifications to all repo watchers. The board-as-triage approach avoids this entirely.
+
+### User Scenarios
+
+**Scenario A: New repo, few issues**
+1. `:OkubanSetup` → creates `okuban:` labels on the repo
+2. `:Okuban` → board opens, existing issues appear in Unsorted
+3. Navigate Unsorted → `<CR>` → "Move to column..." → pick column
+4. New issues get tagged via `/start-issue` or `m` key on the board
+
+**Scenario B: Existing repo with status labels** (e.g., `status: todo`, `in progress`)
+1. No `:OkubanSetup` needed — configure existing labels as columns:
+
+```lua
+require('okuban').setup({
+  columns = {
+    { label = "status: backlog", name = "Backlog", color = "#c5def5" },
+    { label = "status: todo",    name = "Todo",    color = "#0075ca" },
+    { label = "in progress",     name = "In Progress", color = "#fbca04" },
+    { label = "needs review",    name = "Review",  color = "#d4c5f9" },
+    { label = "done",            name = "Done",    color = "#0e8a16", state = "all", limit = 20 },
+  }
+})
+```
+
+2. `:Okuban` → board reads existing labels, issues are already sorted
+3. Zero modifications, zero notifications — config-only
+
+**Scenario C: Existing repo, no status labels**
+1. `:OkubanSetup` → creates `okuban:` labels
+2. `:Okuban` → all issues land in Unsorted
+3. User triages from Unsorted into columns via the action menu, at their own pace
+
+### First-Open Hint
+
+When the board opens and ALL kanban columns are empty but Unsorted has issues, display a one-line hint in the board header or preview pane:
+
+```
+Tip: press Enter on a card to triage it into a column, or m to move it directly
+```
+
+This hint disappears once at least one column has an issue.
+
+### What We Explicitly Do NOT Build
+
+- **`:OkubanImport`** — No bulk import command. The board handles triage natively.
+- **Label heuristic detection** — No scanning/guessing existing labels. Users configure in `setup()`.
+- **Bulk-tagging** — No "tag all open issues as backlog" button. One-by-one is intentional.
+- **Label migration** — No renaming or deleting existing labels. Additive only.
+
+---
+
+## 7. Worktree Status Indicators
 
 ### Goal
 
@@ -483,7 +566,7 @@ If the user has **polarmutex/git-worktree.nvim** installed, register a hook on `
 
 ---
 
-## 7. Autonomous Claude Code Sessions
+## 8. Autonomous Claude Code Sessions
 
 ### Goal
 
