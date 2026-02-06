@@ -23,6 +23,10 @@ local M = {}
 ---@field enabled boolean
 ---@field max_budget_usd number
 ---@field max_turns integer
+---@field allowed_tools string[]
+---@field worktree_base_dir string|nil
+---@field auto_push boolean
+---@field auto_pr boolean
 
 ---@class OkubanConfig
 ---@field columns OkubanColumn[]
@@ -66,6 +70,18 @@ local defaults = {
     enabled = true,
     max_budget_usd = 5.00,
     max_turns = 30,
+    allowed_tools = {
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+    },
+    worktree_base_dir = nil,
+    auto_push = false,
+    auto_pr = false,
   },
 }
 
