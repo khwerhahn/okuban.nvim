@@ -32,7 +32,7 @@ describe("okuban.api fetch", function()
 
       local done = false
       local result = nil
-      api.fetch_column("okuban:todo", function(issues)
+      api.fetch_column("okuban:todo", nil, function(issues)
         done = true
         result = issues
       end)
@@ -53,7 +53,7 @@ describe("okuban.api fetch", function()
 
       local done = false
       local result = nil
-      api.fetch_column("okuban:todo", function(issues)
+      api.fetch_column("okuban:todo", nil, function(issues)
         done = true
         result = issues
       end)
@@ -72,7 +72,7 @@ describe("okuban.api fetch", function()
       local done = false
       local result_issues = "not_nil"
       local result_err = nil
-      api.fetch_column("okuban:todo", function(issues, err)
+      api.fetch_column("okuban:todo", nil, function(issues, err)
         done = true
         result_issues = issues
         result_err = err
@@ -91,7 +91,7 @@ describe("okuban.api fetch", function()
       })
 
       local done = false
-      api.fetch_column("okuban:in-progress", function()
+      api.fetch_column("okuban:in-progress", nil, function()
         done = true
       end)
 
@@ -107,6 +107,27 @@ describe("okuban.api fetch", function()
       assert.truthy(vim.tbl_contains(cmd, "--json"))
       assert.truthy(vim.tbl_contains(cmd, "--limit"))
       assert.truthy(vim.tbl_contains(cmd, "100"))
+      assert.truthy(vim.tbl_contains(cmd, "--state"))
+      assert.truthy(vim.tbl_contains(cmd, "open"))
+    end)
+
+    it("passes state parameter to gh command", function()
+      local calls = helpers.mock_vim_system({
+        { code = 0, stdout = "[]" },
+      })
+
+      local done = false
+      api.fetch_column("okuban:done", "all", function()
+        done = true
+      end)
+
+      vim.wait(1000, function()
+        return done
+      end)
+
+      local cmd = calls[1].cmd
+      assert.truthy(vim.tbl_contains(cmd, "--state"))
+      assert.truthy(vim.tbl_contains(cmd, "all"))
     end)
   end)
 
@@ -154,6 +175,46 @@ describe("okuban.api fetch", function()
       assert.is_not_nil(result.unsorted)
       assert.equals(1, #result.unsorted)
       assert.equals(99, result.unsorted[1].number)
+    end)
+
+    it("passes column state to fetch_column for Done column", function()
+      local responses = {}
+      for i = 1, 6 do
+        responses[i] = { code = 0, stdout = "[]" }
+      end
+      local calls = helpers.mock_vim_system(responses)
+
+      local done = false
+      api.fetch_all_columns(function()
+        done = true
+      end)
+
+      vim.wait(2000, function()
+        return done
+      end)
+
+      -- The 5th column (Done) should use --state all
+      local done_cmd = calls[5].cmd
+      -- Find the index of "--state" and check the value after it
+      local state_val = nil
+      for i, v in ipairs(done_cmd) do
+        if v == "--state" then
+          state_val = done_cmd[i + 1]
+          break
+        end
+      end
+      assert.equals("all", state_val)
+
+      -- Other columns should use --state open (default)
+      local todo_cmd = calls[2].cmd
+      local todo_state = nil
+      for i, v in ipairs(todo_cmd) do
+        if v == "--state" then
+          todo_state = todo_cmd[i + 1]
+          break
+        end
+      end
+      assert.equals("open", todo_state)
     end)
 
     it("excludes unsorted when show_unsorted is false", function()

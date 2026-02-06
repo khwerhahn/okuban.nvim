@@ -144,8 +144,9 @@ local ISSUE_FIELDS = "number,title,assignees,labels,state"
 
 --- Fetch issues for a single label.
 ---@param label string The label to filter by
+---@param state string|nil Issue state filter: "open", "closed", or "all" (default: "open")
 ---@param callback fun(issues: table[]|nil, err: string|nil)
-function M.fetch_column(label, callback)
+function M.fetch_column(label, state, callback)
   local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
     "issue",
     "list",
@@ -156,7 +157,7 @@ function M.fetch_column(label, callback)
     "--limit",
     "100",
     "--state",
-    "open",
+    state or "open",
   })
   vim.system(cmd, { text = true }, function(result)
     vim.schedule(function()
@@ -259,7 +260,7 @@ function M.fetch_all_columns(callback)
 
   -- Fire all column fetches in parallel
   for _, col in ipairs(columns) do
-    M.fetch_column(col.label, function(issues, err)
+    M.fetch_column(col.label, col.state, function(issues, err)
       if err then
         utils.notify(err, vim.log.levels.WARN)
       end
