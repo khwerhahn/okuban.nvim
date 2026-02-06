@@ -143,6 +143,25 @@ function Navigation:highlight_current()
   end
 end
 
+--- Navigate to the card matching the given issue number.
+--- Searches all columns and sets column_index + card_index accordingly.
+---@param issue_number integer
+---@return boolean found True if the issue was found and focused
+function Navigation:focus_issue(issue_number)
+  for col_idx, col in ipairs(self.board.columns) do
+    for card_idx, issue in ipairs(col.issues) do
+      if issue.number == issue_number then
+        self.column_index = col_idx
+        self.card_index = card_idx
+        self:_focus_window()
+        self:highlight_current()
+        return true
+      end
+    end
+  end
+  return false
+end
+
 --- Get the issue data for the currently selected card.
 ---@return table|nil issue
 function Navigation:get_selected_issue()
@@ -213,6 +232,25 @@ function Navigation:setup_keymaps(buf)
   vim.keymap.set("n", keymaps.help, function()
     local help = require("okuban.ui.help")
     help.open()
+  end, opts)
+
+  vim.keymap.set("n", keymaps.goto_current, function()
+    local detect = require("okuban.detect")
+    local utils = require("okuban.utils")
+    detect.detect_issue(function(issue_number)
+      if not issue_number then
+        utils.notify("No current issue detected", vim.log.levels.WARN)
+        return
+      end
+      local found = self:focus_issue(issue_number)
+      if found then
+        local issue = self:get_selected_issue()
+        local title = issue and issue.title or ""
+        utils.notify("Focused on #" .. issue_number .. ": " .. title)
+      else
+        utils.notify("#" .. issue_number .. " not on the board", vim.log.levels.WARN)
+      end
+    end)
   end, opts)
 end
 
