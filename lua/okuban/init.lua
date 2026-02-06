@@ -2,6 +2,7 @@ local M = {}
 
 local config = require("okuban.config")
 local utils = require("okuban.utils")
+local api = require("okuban.api")
 
 --- Set up okuban with user options.
 ---@param opts table|nil
@@ -11,7 +12,12 @@ end
 
 --- Open the kanban board.
 function M.open()
-  utils.notify("Board opening not yet implemented", vim.log.levels.WARN)
+  api.preflight(function(ok)
+    if not ok then
+      return
+    end
+    utils.notify("Board opening not yet implemented", vim.log.levels.WARN)
+  end)
 end
 
 --- Close the kanban board.
