@@ -13,13 +13,18 @@ CONTENTS                                                     *okuban-contents*
   4. Commands .......................... |okuban-commands|
   5. Keybindings ....................... |okuban-keybindings|
   6. Configuration ..................... |okuban-configuration|
+  7. Features .......................... |okuban-features|
+  8. FAQ ............................... |okuban-faq|
+  9. Troubleshooting ................... |okuban-troubleshooting|
 
 ==============================================================================
 1. INTRODUCTION                                          *okuban-introduction*
 
 okuban.nvim turns GitHub issues into an interactive kanban board inside
 Neovim. Issues are sorted into columns based on labels with the `okuban:`
-prefix. No GitHub Projects setup required.
+prefix. No GitHub Projects setup required — just issues and labels.
+
+Moving a card between columns swaps labels automatically via `gh issue edit`.
 
 ==============================================================================
 2. REQUIREMENTS                                          *okuban-requirements*
@@ -27,6 +32,7 @@ prefix. No GitHub Projects setup required.
 - Neovim 0.10+
 - `gh` CLI (https://cli.github.com) — installed and authenticated
 - `repo` scope (default in `gh auth login`)
+- `claude` CLI — optional, only for autonomous coding feature
 
 ==============================================================================
 3. SETUP                                                       *okuban-setup*
@@ -34,7 +40,7 @@ prefix. No GitHub Projects setup required.
 Using lazy.nvim: >lua
   {
     "khwerhahn/okuban.nvim",
-    cmd = { "Okuban", "OkubanSetup", "OkubanRefresh", "OkubanClose" },
+    cmd = { "Okuban", "OkubanSetup" },
     opts = {},
   }
 <
@@ -57,7 +63,7 @@ Then run `:OkubanSetup` to create the kanban labels on your repo.
   Create kanban labels on the current repository.
   Without arguments: creates 5 column labels (okuban:backlog, okuban:todo,
   okuban:in-progress, okuban:review, okuban:done).
-  With `--full`: also creates type, priority, and community labels (~17 total).
+  With `--full`: also creates type, priority, and community labels.
 
 ==============================================================================
 5. KEYBINDINGS                                           *okuban-keybindings*
@@ -65,15 +71,32 @@ Then run `:OkubanSetup` to create the kanban labels on your repo.
 All keybindings are buffer-local to the board windows and configurable
 via the `keymaps` option in |okuban-configuration|.
 
-  Key   Action ~
-  h     Move to previous column
-  l     Move to next column
-  k     Move to previous card
-  j     Move to next card
-  m     Move card to another column
-  r     Refresh board
-  ?     Toggle help
-  q     Close board
+Board Navigation ~
+
+  Key       Action ~
+  h         Move to previous column
+  l         Move to next column
+  k         Move to previous card
+  j         Move to next card
+  m         Move card to another column
+  <CR>      Open action menu on selected card
+  g         Jump to auto-detected current issue
+  r         Refresh board
+  ?         Toggle help
+  q         Close board
+
+Action Menu ~
+
+Press `<CR>` on any card to open the action menu. Available actions depend
+on the issue state.
+
+  Key       Action ~
+  m         Move to column (always available)
+  v         View in browser (always available)
+  c         Close issue (open issues only)
+  a         Assign to me (open issues only)
+  x         Code with Claude (open issues, when claude is available)
+  q/<Esc>   Dismiss menu
 
 ==============================================================================
 6. CONFIGURATION                                       *okuban-configuration*
@@ -85,17 +108,23 @@ Pass options to `setup()`: >lua
       { label = "okuban:todo",        name = "Todo",        color = "#0075ca" },
       { label = "okuban:in-progress", name = "In Progress", color = "#fbca04" },
       { label = "okuban:review",      name = "Review",      color = "#d4c5f9" },
-      { label = "okuban:done",        name = "Done",        color = "#0e8a16" },
+      { label = "okuban:done",        name = "Done",        color = "#0e8a16",
+                                       state = "all", limit = 20 },
     },
     show_unsorted = true,
     skip_preflight = false,
     github_hostname = nil,
+    preview_lines = 8,
+    show_tldr = true,
+    poll_interval = 20,
     keymaps = {
       column_left  = "h",
       column_right = "l",
       card_up      = "k",
       card_down    = "j",
       move_card    = "m",
+      open_actions = "<CR>",
+      goto_current = "g",
       close        = "q",
       refresh      = "r",
       help         = "?",
@@ -104,8 +133,182 @@ Pass options to `setup()`: >lua
       enabled = true,
       max_budget_usd = 5.00,
       max_turns = 30,
+      allowed_tools = {
+        "Bash(git:*)",
+        "Bash(gh:*)",
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+      },
+      worktree_base_dir = nil,
+      auto_push = false,
+      auto_pr = false,
     },
   })
 <
+
+Options ~
+
+columns                                             *okuban-config-columns*
+  Type: `table[]`
+  Default: 5 columns (Backlog, Todo, In Progress, Review, Done)
+
+  Each column has:
+  - `label` (string): The GitHub label that maps issues to this column.
+  - `name` (string): Display name shown in the column header.
+  - `color` (string): Hex color for `:OkubanSetup` label creation.
+  - `state` (string|nil): Issue state filter — "open" (default), "closed",
+    or "all". The Done column uses "all" to include closed issues.
+  - `limit` (integer|nil): Max issues to fetch. Default 100.
+
+show_unsorted                                   *okuban-config-show-unsorted*
+  Type: `boolean`, Default: `true`
+  Show a column for issues that have no `okuban:` label.
+
+skip_preflight                                 *okuban-config-skip-preflight*
+  Type: `boolean`, Default: `false`
+  Skip `gh` authentication and scope checks on board open.
+
+github_hostname                               *okuban-config-github-hostname*
+  Type: `string|nil`, Default: `nil`
+  Set to your GitHub Enterprise Server hostname (e.g. "github.mycompany.com").
+
+preview_lines                                   *okuban-config-preview-lines*
+  Type: `integer`, Default: `8`
+  Height of the preview pane below the board. Set to 0 to disable.
+
+show_tldr                                           *okuban-config-show-tldr*
+  Type: `boolean`, Default: `true`
+  Show a TLDR excerpt from the issue body in the preview pane.
+
+poll_interval                                   *okuban-config-poll-interval*
+  Type: `integer`, Default: `20`
+  Auto-refresh interval in seconds. Set to 0 to disable auto-polling.
+
+keymaps                                             *okuban-config-keymaps*
+  Type: `table`
+  Remap any board keybinding. See |okuban-keybindings| for the full list.
+
+claude                                               *okuban-config-claude*
+  Type: `table`
+  Claude Code integration settings.
+  - `enabled` (boolean): Enable the Code action. Default: true.
+  - `max_budget_usd` (number): Spending cap per session. Default: 5.00.
+  - `max_turns` (integer): Max API turns per session. Default: 30.
+  - `allowed_tools` (string[]): Tools the Claude session can use.
+  - `worktree_base_dir` (string|nil): Base directory for worktrees.
+    Default: nil (auto — `../repo-worktrees/`).
+  - `auto_push` (boolean): Push branch on completion. Default: false.
+  - `auto_pr` (boolean): Create PR on completion. Default: false.
+
+==============================================================================
+7. FEATURES                                                 *okuban-features*
+
+Preview Pane ~
+                                                       *okuban-preview-pane*
+A detail pane below the board shows information about the selected card:
+issue number, title, state, labels, assignees, and a body excerpt. Updates
+automatically as you navigate. Configure height with `preview_lines` or
+disable with `preview_lines = 0`.
+
+Auto-Polling ~
+                                                       *okuban-auto-polling*
+The board refreshes from GitHub at a configurable interval (default: 20
+seconds). Disable with `poll_interval = 0`. The refresh preserves your
+current cursor position.
+
+Auto-Focus ~
+                                                        *okuban-auto-focus*
+On board open, okuban detects your current issue using a three-tier cascade:
+
+1. Branch name — patterns like `feat/issue-42-desc`, `fix/123-null`,
+   `GH-42-oauth`, or `42-add-login`.
+2. Recent commits — scans the last 5 commit messages for `#N` references,
+   picks the most-referenced issue.
+3. gh CLI — queries for issues assigned to you with the
+   `okuban:in-progress` label.
+
+Press `g` at any time to re-run detection and jump to the matched card.
+
+Worktree Status ~
+                                                     *okuban-worktree-status*
+Cards show git worktree indicators when a linked worktree exists:
+- `○` — worktree exists, working tree is clean
+- `●` — worktree exists, working tree has uncommitted changes
+- Orange highlight (OkubanCardActive) — your currently active worktree
+
+Claude Code Integration ~
+                                                            *okuban-claude*
+From the action menu, select "Code with Claude" (`x`) to launch an
+autonomous coding session. Okuban will:
+1. Create a git worktree for the issue
+2. Fetch the issue context (title, body, labels, comments)
+3. Launch Claude Code with sandboxed tools and a budget cap
+
+Session status is shown as badges on cards:
+- `[▶]` — session is running
+- `[✓]` — session completed successfully
+- `[✗]` — session failed
+
+Session details appear in the preview pane when a card with an active
+session is selected.
+
+==============================================================================
+8. FAQ                                                           *okuban-faq*
+
+Q: Do I need GitHub Projects? ~
+A: No. okuban.nvim uses GitHub issue labels as its data source. You only
+need issues and labels.
+
+Q: Can I customize the columns? ~
+A: Yes. Pass a `columns` table to `setup()` with your own labels, names,
+and colors. See |okuban-configuration|.
+
+Q: How does auto-focus work? ~
+A: It uses a three-tier detection cascade: branch name, commit messages,
+then `gh` CLI. See |okuban-auto-focus|.
+
+Q: What are the worktree badges? ~
+A: `○` = clean worktree, `●` = dirty worktree, orange highlight = active
+worktree. See |okuban-worktree-status|.
+
+Q: How does Claude Code integration work? ~
+A: It creates a git worktree, fetches issue context, and launches Claude
+Code autonomously. See |okuban-claude|.
+
+Q: Can I use this with GitHub Enterprise? ~
+A: Yes. Set `github_hostname` in your config.
+See |okuban-config-github-hostname|.
+
+Q: How do I disable auto-polling? ~
+A: Set `poll_interval = 0`. See |okuban-config-poll-interval|.
+
+Q: Why is the Done column limited to 20 issues? ~
+A: The Done column includes closed issues, which can grow large. The limit
+keeps the board responsive. Change it via the `limit` field on the column.
+See |okuban-config-columns|.
+
+==============================================================================
+9. TROUBLESHOOTING                                   *okuban-troubleshooting*
+
+"gh CLI not found" ~
+  Install from https://cli.github.com, then run `gh auth login`.
+
+"Not authenticated with GitHub" ~
+  Run `gh auth login` and follow the prompts.
+
+"Labels not showing up" ~
+  Run `:OkubanSetup` to create the default labels, then assign them to
+  your issues.
+
+"Claude Code not available" ~
+  Install Claude Code from https://claude.ai/code. This is optional — the
+  board works fully without it.
+
+"Board looks wrong after resizing" ~
+  The board repositions on VimResized, but if something looks off, press
+  `r` to refresh or reopen with `:Okuban`.
 
  vim:tw=78:ft=help:norl:

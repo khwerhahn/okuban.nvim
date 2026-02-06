@@ -14,7 +14,7 @@ A Neovim plugin that turns GitHub issues into an interactive kanban board inside
 
 ## Status
 
-**Early Development** — Not yet functional. See [Roadmap](#roadmap) below.
+**Beta** — Actively developed. Core features are functional. See [Roadmap](#roadmap) for what's shipped and what's coming.
 
 ## Why?
 
@@ -41,12 +41,20 @@ Issues without an `okuban:` label appear in an **Unsorted** column.
 
 Moving a card between columns swaps labels automatically. No GitHub Projects board needed.
 
+## Features
+
+- **Preview pane** — Issue details (title, labels, assignees, body excerpt) displayed below the board. Automatically updates as you navigate between cards.
+- **Auto-polling** — The board refreshes from GitHub every 20 seconds (configurable, or disable with `poll_interval = 0`).
+- **Auto-focus** — On board open, okuban detects which issue you're working on from your git branch name, recent commit messages, or the `gh` CLI, and scrolls to that card. Press `g` to re-trigger.
+- **Worktree status badges** — Cards show git worktree indicators: `○` (worktree exists, clean), `●` (worktree exists, dirty). The card for your active worktree is highlighted in orange.
+- **Action menu** — Press `<CR>` on any card to open a floating menu with actions: move, view in browser, close, assign, or launch Claude Code.
+- **Claude Code integration** — Launch autonomous Claude Code sessions directly from the board. Each session runs in its own git worktree with sandboxed tools and budget limits.
+
 ## Prerequisites
 
 - Neovim 0.10+
 - [GitHub CLI](https://cli.github.com) (`gh`) — installed and authenticated
-- [jq](https://jqlang.github.io/jq/) — for Claude Code hook enforcement (`brew install jq`)
-- [Claude Code](https://claude.ai) (`claude`) — optional, only for autonomous coding feature
+- [Claude Code](https://claude.ai/code) (`claude`) — optional, only for autonomous coding feature
 
 ## Installation
 
@@ -81,6 +89,8 @@ Plug 'khwerhahn/okuban.nvim'
 
 ## Configuration
 
+All options with their defaults:
+
 ```lua
 require("okuban").setup({
   -- Label-to-column mapping (order = left-to-right on the board)
@@ -89,26 +99,63 @@ require("okuban").setup({
     { label = "okuban:todo",        name = "Todo",        color = "#0075ca" },
     { label = "okuban:in-progress", name = "In Progress", color = "#fbca04" },
     { label = "okuban:review",      name = "Review",      color = "#d4c5f9" },
-    { label = "okuban:done",        name = "Done",        color = "#0e8a16" },
+    { label = "okuban:done",        name = "Done",        color = "#0e8a16", state = "all", limit = 20 },
   },
 
   -- Show a column for issues without any okuban: label
   show_unsorted = true,
 
-  -- Skip preflight checks (for users who know their setup works)
+  -- Skip preflight checks (gh auth, repo scope)
   skip_preflight = false,
 
-  -- GitHub hostname (for Enterprise Server users)
+  -- GitHub hostname (for GitHub Enterprise Server)
   github_hostname = nil,
 
-  -- Claude Code settings (optional)
+  -- Height of the preview pane below the board (0 to disable)
+  preview_lines = 8,
+
+  -- Show TLDR excerpt from issue body in the preview pane
+  show_tldr = true,
+
+  -- Auto-refresh interval in seconds (0 to disable)
+  poll_interval = 20,
+
+  -- Board keymaps (all buffer-local to the board windows)
+  keymaps = {
+    column_left  = "h",
+    column_right = "l",
+    card_up      = "k",
+    card_down    = "j",
+    move_card    = "m",
+    open_actions = "<CR>",
+    goto_current = "g",
+    close        = "q",
+    refresh      = "r",
+    help         = "?",
+  },
+
+  -- Claude Code integration (requires `claude` CLI)
   claude = {
     enabled = true,
     max_budget_usd = 5.00,
     max_turns = 30,
+    allowed_tools = {
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+    },
+    worktree_base_dir = nil,  -- nil = auto (../repo-worktrees/)
+    auto_push = false,        -- push worktree branch on session complete
+    auto_pr = false,          -- create PR on session complete
   },
 })
 ```
+
+The Done column uses `state = "all"` to include closed issues and `limit = 20` to cap how many are fetched (for performance). Both are configurable per column.
 
 ## Commands
 
@@ -124,26 +171,31 @@ require("okuban").setup({
 
 ### Board Navigation
 
+All keybindings are buffer-local to the board windows and configurable via the `keymaps` option.
+
 | Key | Action |
 |-----|--------|
 | `h` / `l` | Move between columns |
 | `j` / `k` | Move between cards |
 | `<CR>` | Open action menu on selected card |
 | `m` | Move card to another column |
-| `n` | New draft issue |
-| `r` | Refresh board |
 | `g` | Jump to auto-detected current issue |
+| `r` | Refresh board |
 | `q` | Close board |
 | `?` | Show help |
 
 ### Action Menu
 
+Press `<CR>` on any card to open the action menu:
+
 | Key | Action |
 |-----|--------|
-| `a` | View issue in browser |
-| `b` | Close issue (with confirmation) |
-| `c` | Code autonomously (worktree + Claude) |
-| `<Esc>` / `q` | Dismiss menu |
+| `m` | Move to column |
+| `v` | View in browser |
+| `c` | Close issue (open issues only) |
+| `a` | Assign to me (open issues only) |
+| `x` | Code with Claude (open issues, when available) |
+| `q` / `<Esc>` | Dismiss menu |
 
 ## Label Setup
 
@@ -153,40 +205,114 @@ See [docs/label-setup.md](docs/label-setup.md) for the full label reference with
 
 ## Roadmap
 
-### Beta — Core Board (label-based)
-- [ ] Preflight checks (gh auth, repo scope)
-- [ ] `:OkubanSetup` to create default labels
-- [ ] Fetch issues per label column via `gh issue list`
-- [ ] Multi-column floating window layout with sticky headers
-- [ ] Semantic hjkl navigation between columns and cards
-- [ ] Move cards between columns (label swap via `gh issue edit`)
+### Phase 1: Core Board
+- [x] Preflight checks (gh auth, repo scope)
+- [x] `:OkubanSetup` to create default labels
+- [x] Fetch issues per label column via `gh issue list`
+- [x] Multi-column floating window layout with sticky headers
+- [x] Semantic hjkl navigation between columns and cards
+- [x] Move cards between columns (label swap via `gh issue edit`)
 
-### Beta — Smart Features
-- [ ] Auto-focus on current issue from git branch/commit context
-- [ ] Worktree status indicators per card (exists, dirty, active, ahead/behind)
-- [ ] Action menu on cards (view in browser, close, code)
-- [ ] Card detail view (issue body, comments, labels)
+### Phase 2: Smart Features
+- [x] Auto-focus on current issue from git branch/commit context
+- [x] Worktree status indicators per card (exists, dirty, active)
+- [x] Action menu on cards (view, close, assign, code)
+- [x] Preview pane with issue details below the board
 
-### Beta — Autonomous Coding
-- [ ] Launch Claude Code sessions from the board
-- [ ] Git worktree creation and management for isolated coding
-- [ ] Monitor running Claude sessions with live status
+### Phase 3: Autonomous Coding
+- [x] Launch Claude Code sessions from the board
+- [x] Git worktree creation and management for isolated coding
+- [x] Monitor running Claude sessions with live status badges
 
-### Beta — Polish & Community
+### Phase 4: Polish & Community
 - [ ] Telescope integration for repo picker
 - [ ] Customizable colors and highlight groups
 - [ ] Status line integration
 - [x] GitHub Actions CI (tests, StyLua, Luacheck)
-- [ ] Issue templates, PR template, CONTRIBUTING.md
+- [x] Issue templates, PR template, CONTRIBUTING.md
 
-### v1.0 — GitHub Projects v2
+### v1.0: GitHub Projects v2
 - [ ] GitHub Projects v2 as an alternative/additional data source (GraphQL API)
 - [ ] Custom field support (priority, iteration, size)
 - [ ] Sync between labels and project board columns
 
-## Development
+## FAQ
 
-### Running locally
+**Do I need GitHub Projects?**
+No. okuban.nvim uses GitHub issue labels as its data source. You only need issues and labels — no Projects board setup required.
+
+**Can I customize the columns?**
+Yes. Pass a `columns` table to `setup()` with your own labels, names, and colors:
+```lua
+require("okuban").setup({
+  columns = {
+    { label = "status:new",  name = "New",  color = "#c5def5" },
+    { label = "status:wip",  name = "WIP",  color = "#fbca04" },
+    { label = "status:done", name = "Done", color = "#0e8a16", state = "all", limit = 50 },
+  },
+})
+```
+
+**How does auto-focus work?**
+When you open the board, okuban tries to detect which issue you're working on using a three-tier cascade:
+1. **Branch name** — Parses patterns like `feat/issue-42-description`, `fix/123-null-check`, or `GH-42-oauth`
+2. **Recent commits** — Scans the last 5 commit messages for `#N` references
+3. **gh CLI** — Queries for issues assigned to you with the `okuban:in-progress` label
+
+Press `g` at any time to re-run detection and jump to the matched card.
+
+**What are the worktree badges?**
+Cards show git worktree status when a linked worktree exists:
+- `○` — worktree exists, working tree is clean
+- `●` — worktree exists, working tree has uncommitted changes
+- Orange highlight — this is your currently active worktree
+
+**How does Claude Code integration work?**
+From the action menu (`<CR>` then `x`), okuban creates a separate git worktree for the issue, fetches the issue context, and launches Claude Code with sandboxed tools and a budget cap. The session runs autonomously while you continue working. Session status is shown as badges on cards: `[▶]` running, `[✓]` completed, `[✗]` failed.
+
+**Can I use this with GitHub Enterprise?**
+Yes. Set the `github_hostname` option:
+```lua
+require("okuban").setup({
+  github_hostname = "github.mycompany.com",
+})
+```
+
+**How do I disable auto-polling?**
+Set `poll_interval` to 0:
+```lua
+require("okuban").setup({
+  poll_interval = 0,
+})
+```
+
+**Why is the Done column limited to 20 issues?**
+The Done column includes closed issues (`state = "all"`), which can grow large over time. The default `limit = 20` keeps the board responsive. You can change this per column:
+```lua
+columns = {
+  -- ...
+  { label = "okuban:done", name = "Done", color = "#0e8a16", state = "all", limit = 100 },
+},
+```
+
+## Troubleshooting
+
+**"gh CLI not found"**
+Install from https://cli.github.com, then run `gh auth login`.
+
+**"Not authenticated with GitHub"**
+Run `gh auth login` and follow the prompts.
+
+**"Labels not showing up"**
+Run `:OkubanSetup` to create the default labels, then assign them to your issues.
+
+**"Claude Code not available"**
+Install Claude Code from https://claude.ai/code. This is optional — the board works fully without it.
+
+**Board looks wrong after resizing the terminal**
+The board automatically repositions on `VimResized`, but if something looks off, press `r` to refresh or reopen with `:Okuban`.
+
+## Development
 
 ```bash
 # Run tests
@@ -202,28 +328,11 @@ make check
 make format
 ```
 
-### CI
-
-Every push to `main` and every PR runs:
-- **StyLua** formatting check
-- **Luacheck** linting
-- **plenary.nvim tests** on Neovim stable + nightly
-- **PR title lint** — must follow [Conventional Commits](https://www.conventionalcommits.org/) format
-
-Branch protection requires all checks to pass before merging.
-
-### Releases
-
-Versioning follows [SemVer](https://semver.org/) with `v`-prefixed tags. [release-please](https://github.com/googleapis/release-please) automates version bumps and changelogs based on Conventional Commits.
-
-On each release:
-- A `v*` tag and GitHub Release are created automatically
-- The `stable` tag is updated (for `version = "*"` in lazy.nvim)
-- The plugin is published to [LuaRocks](https://luarocks.org/)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
 
 ## Contributing with Claude Code
 
-This project is built with Claude Code and ships with a complete AI-assisted development workflow. When you clone or fork the repo, you get:
+This project ships with a Claude Code workflow. When you clone or fork the repo, you get:
 
 **Custom skills** (slash commands):
 | Command | What it does |
@@ -237,36 +346,13 @@ This project is built with Claude Code and ships with a complete AI-assisted dev
 - Commits without an issue reference (`Fixes #42`, `Refs #42`) are **blocked**
 - Session start auto-detects which issue you're working on from the branch name
 
-**Issue-driven development** — all work must have a GitHub issue:
-```
-/start-issue 42              # Begin work (branch, assign, label)
-# ... write code ...
-git commit -m "feat(ui): add board rendering (Fixes #42)"
-gh pr create --body "Fixes #42"
-/close-issue 42              # Done (label, comment, close)
-```
-
 See [docs/claude-code-workflow.md](docs/claude-code-workflow.md) for the full guide.
-
-## Troubleshooting
-
-**"gh CLI not found"**
-Install from https://cli.github.com, then run `gh auth login`.
-
-**"Not authenticated with GitHub"**
-Run `gh auth login` and follow the prompts.
-
-**"Labels not showing up"**
-Run `:OkubanSetup` to create the default labels, then assign them to your issues.
-
-**"Claude Code not available"**
-Install Claude Code from https://claude.ai. This is optional — the board works fully without it.
 
 ## Design Docs
 
 - [Feature Architecture](docs/feature-architecture.md) — Detailed design for all core features
 - [Label Setup](docs/label-setup.md) — Full label reference with colors, descriptions, and `gh` commands
-- [Claude Code Workflow](docs/claude-code-workflow.md) — How to use Claude Code with this project: skills, hooks, issue-driven development
+- [Claude Code Workflow](docs/claude-code-workflow.md) — How to use Claude Code with this project
 
 ## License
 
