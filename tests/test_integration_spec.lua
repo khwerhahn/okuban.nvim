@@ -31,15 +31,30 @@ describe("okuban integration", function()
             { number = 2, title = "Second task" },
             { number = 3, title = "Third task" },
           },
+          card_ranges = {
+            { start_line = 1, end_line = 1 },
+            { start_line = 2, end_line = 2 },
+            { start_line = 3, end_line = 3 },
+          },
         },
-        { name = "In Progress", issues = {
-          { number = 4, title = "Active work" },
-        } },
+        {
+          name = "In Progress",
+          issues = {
+            { number = 4, title = "Active work" },
+          },
+          card_ranges = {
+            { start_line = 1, end_line = 1 },
+          },
+        },
         {
           name = "Done",
           issues = {
             { number = 5, title = "Completed" },
             { number = 6, title = "Also done" },
+          },
+          card_ranges = {
+            { start_line = 1, end_line = 1 },
+            { start_line = 2, end_line = 2 },
           },
         },
       }

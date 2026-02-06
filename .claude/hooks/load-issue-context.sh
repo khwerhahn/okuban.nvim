@@ -36,3 +36,9 @@ STATE=$(echo "$ISSUE_DATA" | jq -r '.state // "Unknown"')
 LABELS=$(echo "$ISSUE_DATA" | jq -r '[.labels[].name] | join(", ") // "none"')
 
 echo "Currently on branch '$BRANCH' which is linked to Issue #${ISSUE_NUM}: ${TITLE} (${STATE}). Labels: ${LABELS}. All commits in this session must reference this issue with 'Fixes #${ISSUE_NUM}' or 'Refs #${ISSUE_NUM}'."
+
+# Check for kanban label — warn if missing
+HAS_KANBAN=$(echo "$ISSUE_DATA" | jq -r '[.labels[].name | select(startswith("okuban:"))] | length')
+if [ "$HAS_KANBAN" = "0" ]; then
+  echo "WARNING: Issue #${ISSUE_NUM} has no okuban: kanban label and will appear in the Unsorted column. Run: /start-issue ${ISSUE_NUM} or: gh issue edit ${ISSUE_NUM} --add-label okuban:in-progress"
+fi

@@ -3,60 +3,364 @@ describe("okuban.ui.card", function()
 
   before_each(function()
     package.loaded["okuban.ui.card"] = nil
+    package.loaded["okuban.config"] = nil
+    require("okuban.config")
     card_mod = require("okuban.ui.card")
   end)
 
+  describe("wrap_text", function()
+    it("wraps text at word boundaries", function()
+      local lines = card_mod.wrap_text("hello world foo bar", 11)
+      assert.equals(2, #lines)
+      assert.equals("hello world", lines[1])
+      assert.equals("foo bar", lines[2])
+    end)
+
+    it("returns single line when text fits", function()
+      local lines = card_mod.wrap_text("hello", 20)
+      assert.equals(1, #lines)
+      assert.equals("hello", lines[1])
+    end)
+
+    it("handles word longer than width", function()
+      local lines = card_mod.wrap_text("superlongword short", 5)
+      assert.equals(2, #lines)
+      assert.equals("superlongword", lines[1])
+      assert.equals("short", lines[2])
+    end)
+
+    it("returns empty string for empty input", function()
+      local lines = card_mod.wrap_text("", 10)
+      assert.equals(1, #lines)
+      assert.equals("", lines[1])
+    end)
+
+    it("returns empty string for nil input", function()
+      local lines = card_mod.wrap_text(nil, 10)
+      assert.equals(1, #lines)
+      assert.equals("", lines[1])
+    end)
+
+    it("handles exact fit", function()
+      local lines = card_mod.wrap_text("abc def", 7)
+      assert.equals(1, #lines)
+      assert.equals("abc def", lines[1])
+    end)
+
+    it("wraps multi-word text into multiple lines", function()
+      local lines = card_mod.wrap_text("a b c d e f", 3)
+      assert.equals(3, #lines)
+      assert.equals("a b", lines[1])
+      assert.equals("c d", lines[2])
+      assert.equals("e f", lines[3])
+    end)
+  end)
+
+  describe("strip_commit_prefix", function()
+    it("strips type(scope): prefix and capitalizes", function()
+      local title, tag = card_mod.strip_commit_prefix("feat(api): preflight checks")
+      assert.equals("Preflight checks", title)
+      assert.equals("feat", tag)
+    end)
+
+    it("strips type: prefix without scope", function()
+      local title, tag = card_mod.strip_commit_prefix("fix: broken link in readme")
+      assert.equals("Broken link in readme", title)
+      assert.equals("fix", tag)
+    end)
+
+    it("passes through plain titles", function()
+      local title, tag = card_mod.strip_commit_prefix("Add board rendering")
+      assert.equals("Add board rendering", title)
+      assert.is_nil(tag)
+    end)
+
+    it("handles empty title", function()
+      local title, tag = card_mod.strip_commit_prefix("")
+      assert.equals("", title)
+      assert.is_nil(tag)
+    end)
+
+    it("handles nil title", function()
+      local title, tag = card_mod.strip_commit_prefix(nil)
+      assert.equals("", title)
+      assert.is_nil(tag)
+    end)
+
+    it("handles nested parentheses in scope", function()
+      local title, tag = card_mod.strip_commit_prefix("test(e2e): integration tests")
+      assert.equals("Integration tests", title)
+      assert.equals("test", tag)
+    end)
+
+    it("capitalizes first letter of description", function()
+      local title, _ = card_mod.strip_commit_prefix("docs: update readme")
+      assert.equals("Update readme", title)
+    end)
+  end)
+
+  describe("extract_tldr", function()
+    it("extracts text from ## Summary section", function()
+      local body = "## Summary\nCreate the plugin skeleton.\n\n## Deliverables\n- stuff"
+      local tldr = card_mod.extract_tldr(body)
+      assert.equals("Create the plugin skeleton.", tldr)
+    end)
+
+    it("extracts text from ## Bug section", function()
+      local body = "## Bug\nDone column shows 0 issues.\n\n## Fix\n- stuff"
+      local tldr = card_mod.extract_tldr(body)
+      assert.equals("Done column shows 0 issues.", tldr)
+    end)
+
+    it("joins multi-line summary into one string", function()
+      local body = "## Summary\nFirst line\nsecond line.\n\n## Deliverables"
+      local tldr = card_mod.extract_tldr(body)
+      assert.equals("First line second line.", tldr)
+    end)
+
+    it("strips markdown backticks", function()
+      local body = "## Bug\nThe `fetch_column()` function fails.\n\n## Fix"
+      local tldr = card_mod.extract_tldr(body)
+      assert.equals("The fetch_column() function fails.", tldr)
+    end)
+
+    it("strips bold markers", function()
+      local body = "## Summary\nThis is **important** text.\n\n## Details"
+      local tldr = card_mod.extract_tldr(body)
+      assert.equals("This is important text.", tldr)
+    end)
+
+    it("falls back to first non-heading line", function()
+      local body = "# Title\nFirst paragraph text.\n\nMore stuff."
+      local tldr = card_mod.extract_tldr(body)
+      assert.equals("First paragraph text.", tldr)
+    end)
+
+    it("returns nil for empty body", function()
+      assert.is_nil(card_mod.extract_tldr(""))
+    end)
+
+    it("returns nil for nil body", function()
+      assert.is_nil(card_mod.extract_tldr(nil))
+    end)
+
+    it("returns nil for body with only headings", function()
+      assert.is_nil(card_mod.extract_tldr("## Heading\n## Another"))
+    end)
+  end)
+
+  describe("format_compact_metadata", function()
+    it("shows type tag and assignee", function()
+      local issue = { assignees = { { login = "alice" } }, labels = {} }
+      local meta = card_mod.format_compact_metadata(issue, "feat")
+      assert.truthy(meta:match("feat"))
+      assert.truthy(meta:match("@alice"))
+    end)
+
+    it("falls back to type: label when no tag", function()
+      local issue = {
+        assignees = {},
+        labels = { { name = "type: bug" }, { name = "okuban:todo" } },
+      }
+      local meta = card_mod.format_compact_metadata(issue, nil)
+      assert.equals("bug", meta)
+    end)
+
+    it("shows only assignee when no type", function()
+      local issue = { assignees = { { login = "bob" } }, labels = {} }
+      local meta = card_mod.format_compact_metadata(issue, nil)
+      assert.equals("@bob", meta)
+    end)
+
+    it("returns nil when no metadata available", function()
+      local issue = { assignees = {}, labels = {} }
+      assert.is_nil(card_mod.format_compact_metadata(issue, nil))
+    end)
+
+    it("skips okuban labels when looking for type", function()
+      local issue = {
+        assignees = {},
+        labels = { { name = "okuban:done" } },
+      }
+      assert.is_nil(card_mod.format_compact_metadata(issue, nil))
+    end)
+  end)
+
   describe("render_card", function()
-    it("formats issue as #number title", function()
-      local line = card_mod.render_card({ number = 42, title = "Add board rendering" }, 40)
-      assert.equals("#42 Add board rendering", line)
+    it("returns a single string", function()
+      local result = card_mod.render_card({ number = 1, title = "Test" }, 30)
+      assert.is_string(result)
+    end)
+
+    it("includes issue number", function()
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 30)
+      assert.truthy(result:match("#42"))
+    end)
+
+    it("strips commit prefix", function()
+      local result = card_mod.render_card({ number = 2, title = "feat(api): preflight checks" }, 40)
+      assert.truthy(result:match("Preflight checks"))
+      assert.is_falsy(result:match("feat%(api%)"))
     end)
 
     it("truncates long titles with ellipsis", function()
-      local line = card_mod.render_card({ number = 1, title = "This is a very long title that exceeds" }, 20)
-      -- prefix "#1 " = 3 chars, available = 17, title truncated to 14 + "..." = 17
-      assert.equals("#1 This is a very...", line)
-      assert.is_true(#line <= 20)
+      local result = card_mod.render_card({ number = 1, title = "A very long title that will be truncated" }, 20)
+      assert.truthy(result:match("\xe2\x80\xa6"))
     end)
 
-    it("handles single-digit issue numbers", function()
-      local line = card_mod.render_card({ number = 5, title = "Short" }, 30)
-      assert.equals("#5 Short", line)
-    end)
-
-    it("handles large issue numbers", function()
-      local line = card_mod.render_card({ number = 12345, title = "Big number" }, 40)
-      assert.equals("#12345 Big number", line)
+    it("does not truncate short titles", function()
+      local result = card_mod.render_card({ number = 1, title = "Short" }, 30)
+      assert.is_falsy(result:match("\xe2\x80\xa6"))
+      assert.truthy(result:match("Short"))
     end)
 
     it("handles missing title", function()
-      local line = card_mod.render_card({ number = 1 }, 20)
-      assert.equals("#1 ", line)
+      local result = card_mod.render_card({ number = 1 }, 20)
+      assert.truthy(result:match("#1"))
     end)
 
-    it("handles exact-fit title", function()
-      local line = card_mod.render_card({ number = 1, title = "12345678901234567" }, 20)
-      -- prefix "#1 " = 3 chars, available = 17, title fits exactly
-      assert.equals("#1 12345678901234567", line)
+    it("handles large issue numbers", function()
+      local result = card_mod.render_card({ number = 12345, title = "Big" }, 40)
+      assert.truthy(result:match("#12345"))
+      assert.truthy(result:match("Big"))
     end)
   end)
 
   describe("render_column", function()
-    it("renders all cards", function()
+    it("renders one line per card", function()
+      local issues = {
+        { number = 1, title = "First" },
+        { number = 2, title = "Second" },
+        { number = 3, title = "Third" },
+      }
+      local lines, card_ranges = card_mod.render_column(issues, 30)
+      assert.equals(3, #lines)
+      assert.equals(3, #card_ranges)
+    end)
+
+    it("shows placeholder for empty column", function()
+      local lines, card_ranges = card_mod.render_column({}, 30)
+      assert.equals(1, #lines)
+      assert.equals("  (no issues)", lines[1])
+      assert.equals(0, #card_ranges)
+    end)
+
+    it("card_ranges are one-to-one with lines", function()
       local issues = {
         { number = 1, title = "First" },
         { number = 2, title = "Second" },
       }
-      local lines = card_mod.render_column(issues, 30)
-      assert.equals(2, #lines)
-      assert.equals("#1 First", lines[1])
-      assert.equals("#2 Second", lines[2])
+      local _, card_ranges = card_mod.render_column(issues, 30)
+      for i, range in ipairs(card_ranges) do
+        assert.equals(i, range.start_line)
+        assert.equals(i, range.end_line)
+      end
     end)
 
-    it("shows placeholder for empty column", function()
-      local lines = card_mod.render_column({}, 30)
-      assert.equals(1, #lines)
-      assert.equals("  (no issues)", lines[1])
+    it("each line contains its issue number", function()
+      local issues = {
+        { number = 10, title = "Alpha" },
+        { number = 20, title = "Beta" },
+      }
+      local lines, _ = card_mod.render_column(issues, 30)
+      assert.truthy(lines[1]:match("#10"))
+      assert.truthy(lines[2]:match("#20"))
+    end)
+  end)
+
+  describe("render_preview", function()
+    it("returns height lines", function()
+      local issue = { number = 1, title = "Test", assignees = {}, labels = {} }
+      local lines = card_mod.render_preview(issue, 80, 5)
+      assert.equals(5, #lines)
+    end)
+
+    it("shows full title with issue number", function()
+      local issue = { number = 42, title = "feat(api): add authentication flow for OAuth" }
+      local lines = card_mod.render_preview(issue, 80, 5)
+      assert.truthy(lines[1]:match("#42"))
+      assert.truthy(lines[1]:match("Add authentication flow for OAuth"))
+    end)
+
+    it("word-wraps long titles", function()
+      local issue = { number = 1, title = "A very long title that needs word wrapping to fit properly" }
+      local lines = card_mod.render_preview(issue, 30, 5)
+      -- Title should span multiple lines
+      local non_empty = 0
+      for _, line in ipairs(lines) do
+        if line ~= "" then
+          non_empty = non_empty + 1
+        end
+      end
+      assert.is_true(non_empty >= 2)
+    end)
+
+    it("shows TLDR from body", function()
+      local issue = {
+        number = 1,
+        title = "Fix bug",
+        body = "## Summary\nThe fetch function fails silently.\n\n## Fix",
+        assignees = {},
+        labels = {},
+      }
+      local lines = card_mod.render_preview(issue, 80, 5)
+      local found = false
+      for _, line in ipairs(lines) do
+        if line:match("fetch function fails") then
+          found = true
+        end
+      end
+      assert.is_true(found)
+    end)
+
+    it("shows metadata", function()
+      local issue = {
+        number = 1,
+        title = "feat(ui): add board",
+        assignees = { { login = "alice" } },
+        labels = {},
+      }
+      local lines = card_mod.render_preview(issue, 80, 5)
+      local found = false
+      for _, line in ipairs(lines) do
+        if line:match("@alice") then
+          found = true
+        end
+      end
+      assert.is_true(found)
+    end)
+
+    it("returns empty lines for nil issue", function()
+      local lines = card_mod.render_preview(nil, 80, 5)
+      assert.equals(5, #lines)
+      for _, line in ipairs(lines) do
+        assert.equals("", line)
+      end
+    end)
+
+    it("pads short content to height", function()
+      local issue = { number = 1, title = "Short", assignees = {}, labels = {} }
+      local lines = card_mod.render_preview(issue, 80, 10)
+      assert.equals(10, #lines)
+    end)
+
+    it("respects show_tldr config", function()
+      local config_mod = require("okuban.config")
+      config_mod.setup({ show_tldr = false })
+      package.loaded["okuban.ui.card"] = nil
+      card_mod = require("okuban.ui.card")
+
+      local issue = {
+        number = 1,
+        title = "Fix bug",
+        body = "## Summary\nThis should not appear.\n\n## End",
+        assignees = {},
+        labels = {},
+      }
+      local lines = card_mod.render_preview(issue, 80, 5)
+      for _, line in ipairs(lines) do
+        assert.is_falsy(line:match("should not appear"))
+      end
     end)
   end)
 end)

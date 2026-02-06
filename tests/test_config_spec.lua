@@ -42,6 +42,31 @@ describe("okuban.config", function()
       end
     end)
 
+    it("has limit on Done column", function()
+      local cfg = config.get()
+      assert.equals(20, cfg.columns[5].limit)
+    end)
+
+    it("has no limit on other columns", function()
+      local cfg = config.get()
+      assert.is_nil(cfg.columns[1].limit)
+      assert.is_nil(cfg.columns[2].limit)
+      assert.is_nil(cfg.columns[3].limit)
+      assert.is_nil(cfg.columns[4].limit)
+    end)
+
+    it("has preview_lines default of 8", function()
+      assert.equals(8, config.get().preview_lines)
+    end)
+
+    it("has show_tldr enabled by default", function()
+      assert.is_true(config.get().show_tldr)
+    end)
+
+    it("has poll_interval default of 20", function()
+      assert.equals(20, config.get().poll_interval)
+    end)
+
     it("has show_unsorted enabled", function()
       assert.is_true(config.get().show_unsorted)
     end)
