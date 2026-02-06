@@ -1,10 +1,14 @@
-# okuban.nvim
+<div align="center">
+  <img src="assets/logo.png" alt="okuban.nvim logo" width="200">
 
-[![CI](https://github.com/khwerhahn/okuban.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/khwerhahn/okuban.nvim/actions/workflows/ci.yml)
-[![Neovim](https://img.shields.io/badge/Neovim-0.10%2B-green.svg)](https://neovim.io)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+  # okuban.nvim
 
-> 奥 (oku = deep/inner) + kanban — "deep kanban" or "inner board"
+  [![CI](https://github.com/khwerhahn/okuban.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/khwerhahn/okuban.nvim/actions/workflows/ci.yml)
+  [![Neovim](https://img.shields.io/badge/Neovim-0.10%2B-green.svg)](https://neovim.io)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+  > 奥 (oku = deep/inner) + kanban — "deep kanban" or "inner board"
+</div>
 
 A Neovim plugin that turns GitHub issues into an interactive kanban board inside your editor. No GitHub Projects setup required — just issues and labels.
 
