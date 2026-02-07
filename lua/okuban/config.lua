@@ -28,8 +28,15 @@ local M = {}
 ---@field auto_push boolean
 ---@field auto_pr boolean
 
+---@class OkubanProjectConfig
+---@field number integer|nil Project number (nil = show picker on first :Okuban)
+---@field owner string|nil Project owner (nil = auto-detect from repo)
+---@field done_limit integer Max items to show per column (default: 20)
+
 ---@class OkubanConfig
+---@field source "labels"|"project" Data source: "labels" (default) or "project"
 ---@field columns OkubanColumn[]
+---@field project OkubanProjectConfig
 ---@field show_unsorted boolean
 ---@field skip_preflight boolean
 ---@field github_hostname string|nil
@@ -47,6 +54,12 @@ local defaults = {
     { label = "okuban:in-progress", name = "In Progress", color = "#fbca04" },
     { label = "okuban:review", name = "Review", color = "#d4c5f9" },
     { label = "okuban:done", name = "Done", color = "#0e8a16", state = "all", limit = 20 },
+  },
+  source = "labels",
+  project = {
+    number = nil,
+    owner = nil,
+    done_limit = 20,
   },
   show_unsorted = true,
   skip_preflight = false,

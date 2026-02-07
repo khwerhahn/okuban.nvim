@@ -1,5 +1,4 @@
 local api = require("okuban.api")
-local config = require("okuban.config")
 local utils = require("okuban.utils")
 
 local M = {}
@@ -24,8 +23,8 @@ function M.prompt_move(board)
     return
   end
 
-  -- Build list of target columns (excluding current)
-  local columns = config.get().columns
+  -- Build list of target columns from board data (works for both labels and project)
+  local columns = board.data and board.data.columns or require("okuban.config").get().columns
   local targets = {}
   for _, col in ipairs(columns) do
     if col.label ~= current_label then
@@ -66,14 +65,15 @@ function M.prompt_move(board)
   end)
 end
 
---- Execute the label swap and refresh the board.
+--- Execute the move and refresh the board.
+--- In label mode: swaps labels. In project mode: updates Status field.
 ---@param number integer Issue number
----@param from_label string Current label
----@param to_label string Target label
+---@param from_id string Current column identifier (label or status option ID)
+---@param to_id string Target column identifier (label or status option ID)
 ---@param to_name string Target column display name
 ---@param board table Board instance
-function M.execute_move(number, from_label, to_label, to_name, board)
-  api.edit_labels(number, from_label, to_label, function(ok, err)
+function M.execute_move(number, from_id, to_id, to_name, board)
+  api.move_card(number, from_id, to_id, to_name, function(ok, err)
     if not ok then
       utils.notify("Failed to move #" .. number .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)
       return
