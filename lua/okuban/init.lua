@@ -31,8 +31,35 @@ function M._register_global_keymaps()
   end
 end
 
+--- Restore saved per-repo state into the live config.
+--- Called once on first board open.
+local _state_loaded = false
+function M._load_saved_state()
+  if _state_loaded then
+    return
+  end
+  _state_loaded = true
+  local state = utils.load_state()
+  if not state then
+    return
+  end
+  local cfg = config.get()
+  if state.source then
+    cfg.source = state.source
+  end
+  if state.project_number then
+    cfg.project.number = state.project_number
+  end
+  if state.project_owner then
+    cfg.project.owner = state.project_owner
+  end
+end
+
 --- Open the kanban board.
 function M.open()
+  -- Restore saved per-repo state on first open
+  M._load_saved_state()
+
   local Board = require("okuban.ui.board")
   local board = Board.get_instance()
 
@@ -60,6 +87,12 @@ function M.open()
             return
           end
           cfg.project.number = number
+          -- Persist the project selection
+          utils.save_state({
+            source = "project",
+            project_number = number,
+            project_owner = cfg.project.owner,
+          })
           -- Now open the board with the selected project
           board:open_loading()
           M._open_board(board)
@@ -179,6 +212,13 @@ function M.set_source(source, project_number)
     if source == "project" and project_number then
       cfg.project.number = project_number
     end
+
+    -- Persist source choice for this repo
+    utils.save_state({
+      source = source,
+      project_number = cfg.project.number,
+      project_owner = cfg.project.owner,
+    })
 
     -- Reset project cache when switching sources
     local api_project = require("okuban.api_project")
