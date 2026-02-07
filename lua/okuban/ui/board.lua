@@ -145,6 +145,7 @@ function Board:_create_preview_window(layout)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, empty_lines)
   vim.bo[buf].modifiable = false
 
+  local source = config.get().source or "labels"
   local win = vim.api.nvim_open_win(buf, false, {
     relative = "editor",
     row = layout.preview_row,
@@ -155,6 +156,8 @@ function Board:_create_preview_window(layout)
     border = "rounded",
     title = " Preview ",
     title_pos = "center",
+    footer = " " .. source .. " ",
+    footer_pos = "right",
     focusable = false,
     zindex = 50,
   })
