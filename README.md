@@ -65,20 +65,20 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
   "khwerhahn/okuban.nvim",
   cmd = { "Okuban", "OkubanSetup", "OkubanSource", "OkubanMigrate" },
   keys = {
-    { "<leader>Ko", "<cmd>Okuban<cr>", desc = "Open kanban board" },
-    { "<leader>Kq", "<cmd>OkubanClose<cr>", desc = "Close kanban board" },
-    { "<leader>Kr", "<cmd>OkubanRefresh<cr>", desc = "Refresh kanban board" },
-    { "<leader>Ks", "<cmd>OkubanSetup<cr>", desc = "Create kanban labels" },
-    { "<leader>KS", "<cmd>OkubanSetup --full<cr>", desc = "Create all labels (full)" },
-    { "<leader>Kl", "<cmd>OkubanSource labels<cr>", desc = "Switch to label source" },
-    { "<leader>Kp", "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
-    { "<leader>Km", "<cmd>OkubanMigrate project<cr>", desc = "Migrate labels to project" },
+    { "<leader>bb", "<cmd>Okuban<cr>", desc = "Open kanban board" },
+    { "<leader>bq", "<cmd>OkubanClose<cr>", desc = "Close kanban board" },
+    { "<leader>br", "<cmd>OkubanRefresh<cr>", desc = "Refresh kanban board" },
+    { "<leader>bs", "<cmd>OkubanSetup<cr>", desc = "Create kanban labels" },
+    { "<leader>bS", "<cmd>OkubanSetup --full<cr>", desc = "Create all labels (full)" },
+    { "<leader>bl", "<cmd>OkubanSource labels<cr>", desc = "Switch to label source" },
+    { "<leader>bp", "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
+    { "<leader>bm", "<cmd>OkubanMigrate project<cr>", desc = "Migrate labels to project" },
   },
   opts = {},
 }
 ```
 
-The `keys` entries register at startup (so `<leader>K` works immediately) and trigger lazy-loading on first use. The `cmd` entries let you use `:Okuban` etc. directly.
+The `keys` entries register at startup (so `<leader>b` works immediately) and trigger lazy-loading on first use. The `cmd` entries let you use `:Okuban` etc. directly.
 
 Using [vim-plug](https://github.com/junegunn/vim-plug):
 
@@ -88,18 +88,18 @@ Plug 'khwerhahn/okuban.nvim'
 
 ### Global Keymaps
 
-okuban.nvim registers global keymaps on `setup()` using the `<leader>K` prefix (**K** for Kanban):
+okuban.nvim registers global keymaps on `setup()` using the `<leader>b` prefix (**b** for board):
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `<leader>Ko` | `:Okuban` | Open kanban board |
-| `<leader>Kq` | `:OkubanClose` | Close kanban board |
-| `<leader>Kr` | `:OkubanRefresh` | Refresh kanban board |
-| `<leader>Ks` | `:OkubanSetup` | Create kanban labels |
-| `<leader>KS` | `:OkubanSetup --full` | Create all labels (full set) |
-| `<leader>Kl` | `:OkubanSource labels` | Switch to label source |
-| `<leader>Kp` | `:OkubanSource project` | Switch to project source |
-| `<leader>Km` | `:OkubanMigrate project` | Migrate labels to project |
+| `<leader>bb` | `:Okuban` | Open kanban board |
+| `<leader>bq` | `:OkubanClose` | Close kanban board |
+| `<leader>br` | `:OkubanRefresh` | Refresh kanban board |
+| `<leader>bs` | `:OkubanSetup` | Create kanban labels |
+| `<leader>bS` | `:OkubanSetup --full` | Create all labels (full set) |
+| `<leader>bl` | `:OkubanSource labels` | Switch to label source |
+| `<leader>bp` | `:OkubanSource project` | Switch to project source |
+| `<leader>bm` | `:OkubanMigrate project` | Migrate labels to project |
 
 Remap or disable any key via the `global_keymaps` config option:
 
@@ -171,14 +171,14 @@ require("okuban").setup({
 
   -- Global keymaps (set false to disable, or change the key)
   global_keymaps = {
-    open           = "<leader>Ko",
-    close          = "<leader>Kq",
-    refresh        = "<leader>Kr",
-    setup          = "<leader>Ks",
-    setup_full     = "<leader>KS",
-    source_labels  = "<leader>Kl",
-    source_project = "<leader>Kp",
-    migrate        = "<leader>Km",
+    open           = "<leader>bb",
+    close          = "<leader>bq",
+    refresh        = "<leader>br",
+    setup          = "<leader>bs",
+    setup_full     = "<leader>bS",
+    source_labels  = "<leader>bl",
+    source_project = "<leader>bp",
+    migrate        = "<leader>bm",
   },
 
   -- Board keymaps (all buffer-local to the board windows)
