@@ -157,6 +157,22 @@ require("okuban").setup({
 
 The Done column uses `state = "all"` to include closed issues and `limit = 20` to cap how many are fetched (for performance). Both are configurable per column.
 
+### Highlight Groups
+
+All highlight groups use `default = true`, so you can override them in your config:
+
+| Group | Default Link | Used For |
+|-------|-------------|----------|
+| `OkubanCardFocused` | `CursorLine` | Currently selected card |
+| `OkubanColumnHeader` | `Title` | Column header text |
+| `OkubanCardActive` | `WarningMsg` | Card with an active git worktree (orange) |
+
+Example override:
+```lua
+vim.api.nvim_set_hl(0, "OkubanCardFocused", { bg = "#2d3f76" })
+vim.api.nvim_set_hl(0, "OkubanCardActive", { fg = "#ff9e64", bold = true })
+```
+
 ## Commands
 
 | Command | Description |
@@ -225,9 +241,6 @@ See [docs/label-setup.md](docs/label-setup.md) for the full label reference with
 - [x] Monitor running Claude sessions with live status badges
 
 ### Phase 4: Polish & Community
-- [ ] Telescope integration for repo picker
-- [ ] Customizable colors and highlight groups
-- [ ] Status line integration
 - [x] GitHub Actions CI (tests, StyLua, Luacheck)
 - [x] Issue templates, PR template, CONTRIBUTING.md
 
