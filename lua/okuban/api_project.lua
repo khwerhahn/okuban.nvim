@@ -277,7 +277,7 @@ local function transform_item(item)
   }
 
   local status_option_id = nil
-  if item.fieldValueByName then
+  if item.fieldValueByName and type(item.fieldValueByName) == "table" then
     status_option_id = item.fieldValueByName.optionId
   end
 
