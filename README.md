@@ -74,37 +74,30 @@ Using [vim-plug](https://github.com/junegunn/vim-plug):
 Plug 'khwerhahn/okuban.nvim'
 ```
 
-### Suggested Keymaps
+### Global Keymaps
 
-okuban.nvim does not set any global keymaps. Add these to your config if you'd like quick access (uses `<leader>K` for **K**anban):
+okuban.nvim registers global keymaps on `setup()` using the `<leader>K` prefix (**K** for Kanban):
+
+| Key | Command | Description |
+|-----|---------|-------------|
+| `<leader>Ko` | `:Okuban` | Open kanban board |
+| `<leader>Kq` | `:OkubanClose` | Close kanban board |
+| `<leader>Kr` | `:OkubanRefresh` | Refresh kanban board |
+| `<leader>Ks` | `:OkubanSetup` | Create kanban labels |
+| `<leader>KS` | `:OkubanSetup --full` | Create all labels (full set) |
+| `<leader>Kl` | `:OkubanSource labels` | Switch to label source |
+| `<leader>Kp` | `:OkubanSource project` | Switch to project source |
+| `<leader>Km` | `:OkubanMigrate project` | Migrate labels to project |
+
+Remap or disable any key via the `global_keymaps` config option:
 
 ```lua
-vim.keymap.set("n", "<leader>Ko", "<cmd>Okuban<cr>", { desc = "Open kanban board" })
-vim.keymap.set("n", "<leader>Kq", "<cmd>OkubanClose<cr>", { desc = "Close kanban board" })
-vim.keymap.set("n", "<leader>Kr", "<cmd>OkubanRefresh<cr>", { desc = "Refresh kanban board" })
-vim.keymap.set("n", "<leader>Ks", "<cmd>OkubanSetup<cr>", { desc = "Create kanban labels" })
-vim.keymap.set("n", "<leader>KS", "<cmd>OkubanSetup --full<cr>", { desc = "Create all labels (full)" })
-vim.keymap.set("n", "<leader>Kl", "<cmd>OkubanSource labels<cr>", { desc = "Switch to label source" })
-vim.keymap.set("n", "<leader>Kp", "<cmd>OkubanSource project<cr>", { desc = "Switch to project source" })
-vim.keymap.set("n", "<leader>Km", "<cmd>OkubanMigrate project<cr>", { desc = "Migrate labels to project" })
-```
-
-Or with lazy.nvim `keys`:
-
-```lua
-{
-  "khwerhahn/okuban.nvim",
-  cmd = { "Okuban", "OkubanSetup", "OkubanSource", "OkubanMigrate" },
-  keys = {
-    { "<leader>Ko", "<cmd>Okuban<cr>", desc = "Open kanban board" },
-    { "<leader>Kq", "<cmd>OkubanClose<cr>", desc = "Close kanban board" },
-    { "<leader>Kr", "<cmd>OkubanRefresh<cr>", desc = "Refresh kanban board" },
-    { "<leader>Ks", "<cmd>OkubanSetup<cr>", desc = "Create kanban labels" },
-    { "<leader>Kp", "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
-    { "<leader>Kl", "<cmd>OkubanSource labels<cr>", desc = "Switch to label source" },
+require("okuban").setup({
+  global_keymaps = {
+    open = "<leader>ob",   -- remap to a different key
+    migrate = false,       -- disable this keymap entirely
   },
-  opts = {},
-}
+})
 ```
 
 ## Quick Start
@@ -163,6 +156,18 @@ require("okuban").setup({
 
   -- Auto-refresh interval in seconds (0 to disable)
   poll_interval = 20,
+
+  -- Global keymaps (set false to disable, or change the key)
+  global_keymaps = {
+    open           = "<leader>Ko",
+    close          = "<leader>Kq",
+    refresh        = "<leader>Kr",
+    setup          = "<leader>Ks",
+    setup_full     = "<leader>KS",
+    source_labels  = "<leader>Kl",
+    source_project = "<leader>Kp",
+    migrate        = "<leader>Km",
+  },
 
   -- Board keymaps (all buffer-local to the board windows)
   keymaps = {

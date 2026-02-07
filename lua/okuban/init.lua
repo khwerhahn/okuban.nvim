@@ -8,6 +8,27 @@ local api = require("okuban.api")
 ---@param opts table|nil
 function M.setup(opts)
   config.setup(opts)
+  M._register_global_keymaps()
+end
+
+--- Register global keymaps from config. Keys set to false are skipped.
+function M._register_global_keymaps()
+  local gk = config.get().global_keymaps
+  local map = {
+    { key = gk.open, cmd = "<cmd>Okuban<cr>", desc = "Open kanban board" },
+    { key = gk.close, cmd = "<cmd>OkubanClose<cr>", desc = "Close kanban board" },
+    { key = gk.refresh, cmd = "<cmd>OkubanRefresh<cr>", desc = "Refresh kanban board" },
+    { key = gk.setup, cmd = "<cmd>OkubanSetup<cr>", desc = "Create kanban labels" },
+    { key = gk.setup_full, cmd = "<cmd>OkubanSetup --full<cr>", desc = "Create all kanban labels" },
+    { key = gk.source_labels, cmd = "<cmd>OkubanSource labels<cr>", desc = "Switch to label source" },
+    { key = gk.source_project, cmd = "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
+    { key = gk.migrate, cmd = "<cmd>OkubanMigrate project<cr>", desc = "Migrate labels to project" },
+  }
+  for _, m in ipairs(map) do
+    if m.key and m.key ~= false then
+      vim.keymap.set("n", m.key, m.cmd, { desc = m.desc })
+    end
+  end
 end
 
 --- Open the kanban board.

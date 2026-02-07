@@ -33,6 +33,16 @@ local M = {}
 ---@field owner string|nil Project owner (nil = auto-detect from repo)
 ---@field done_limit integer Max items to show per column (default: 20)
 
+---@class OkubanGlobalKeymaps
+---@field open string|false
+---@field close string|false
+---@field refresh string|false
+---@field setup string|false
+---@field setup_full string|false
+---@field source_labels string|false
+---@field source_project string|false
+---@field migrate string|false
+
 ---@class OkubanConfig
 ---@field source "labels"|"project" Data source: "labels" (default) or "project"
 ---@field columns OkubanColumn[]
@@ -44,6 +54,7 @@ local M = {}
 ---@field show_tldr boolean Show TLDR in preview pane from issue body (default: true)
 ---@field poll_interval integer Auto-refresh interval in seconds (0 to disable, default: 20)
 ---@field keymaps OkubanKeymaps
+---@field global_keymaps OkubanGlobalKeymaps
 ---@field claude OkubanClaudeConfig
 
 ---@type OkubanConfig
@@ -78,6 +89,16 @@ local defaults = {
     close = "q",
     refresh = "r",
     help = "?",
+  },
+  global_keymaps = {
+    open = "<leader>Ko",
+    close = "<leader>Kq",
+    refresh = "<leader>Kr",
+    setup = "<leader>Ks",
+    setup_full = "<leader>KS",
+    source_labels = "<leader>Kl",
+    source_project = "<leader>Kp",
+    migrate = "<leader>Km",
   },
   claude = {
     enabled = true,

@@ -138,6 +138,16 @@ Pass options to `setup()`: >lua
     preview_lines = 8,
     show_tldr = true,
     poll_interval = 20,
+    global_keymaps = {
+      open           = "<leader>Ko",
+      close          = "<leader>Kq",
+      refresh        = "<leader>Kr",
+      setup          = "<leader>Ks",
+      setup_full     = "<leader>KS",
+      source_labels  = "<leader>Kl",
+      source_project = "<leader>Kp",
+      migrate        = "<leader>Km",
+    },
     keymaps = {
       column_left  = "h",
       column_right = "l",
@@ -221,6 +231,30 @@ show_tldr                                           *okuban-config-show-tldr*
 poll_interval                                   *okuban-config-poll-interval*
   Type: `integer`, Default: `20`
   Auto-refresh interval in seconds. Set to 0 to disable auto-polling.
+
+global_keymaps                                 *okuban-config-global-keymaps*
+  Type: `table`
+  Global keymaps registered on `setup()`. Set any key to `false` to disable.
+  Default prefix: `<leader>K` (K for Kanban).
+
+  Key              Default            Command ~
+  open             `<leader>Ko`       `:Okuban`
+  close            `<leader>Kq`       `:OkubanClose`
+  refresh          `<leader>Kr`       `:OkubanRefresh`
+  setup            `<leader>Ks`       `:OkubanSetup`
+  setup_full       `<leader>KS`       `:OkubanSetup --full`
+  source_labels    `<leader>Kl`       `:OkubanSource labels`
+  source_project   `<leader>Kp`       `:OkubanSource project`
+  migrate          `<leader>Km`       `:OkubanMigrate project`
+
+  Example: >lua
+    require("okuban").setup({
+      global_keymaps = {
+        open = "<leader>ob",   -- remap
+        migrate = false,       -- disable
+      },
+    })
+<
 
 keymaps                                             *okuban-config-keymaps*
   Type: `table`
