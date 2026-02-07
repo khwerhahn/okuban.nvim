@@ -79,6 +79,17 @@ describe("okuban.config", function()
       assert.is_nil(config.get().github_hostname)
     end)
 
+    it("has source default of labels", function()
+      assert.equals("labels", config.get().source)
+    end)
+
+    it("has project defaults", function()
+      local proj = config.get().project
+      assert.is_nil(proj.number)
+      assert.is_nil(proj.owner)
+      assert.equals(20, proj.done_limit)
+    end)
+
     it("has claude settings with sane defaults", function()
       local claude = config.get().claude
       assert.is_true(claude.enabled)
@@ -126,6 +137,14 @@ describe("okuban.config", function()
       local keymaps = config.get().keymaps
       assert.equals("<Esc>", keymaps.close)
       assert.equals("h", keymaps.column_left)
+    end)
+
+    it("allows source and project overrides", function()
+      config.setup({ source = "project", project = { number = 1, owner = "myorg" } })
+      assert.equals("project", config.get().source)
+      assert.equals(1, config.get().project.number)
+      assert.equals("myorg", config.get().project.owner)
+      assert.equals(20, config.get().project.done_limit)
     end)
 
     it("resets to defaults on each setup call", function()

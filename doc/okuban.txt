@@ -14,8 +14,9 @@ CONTENTS                                                     *okuban-contents*
   5. Keybindings ....................... |okuban-keybindings|
   6. Configuration ..................... |okuban-configuration|
   7. Features .......................... |okuban-features|
-  8. FAQ ............................... |okuban-faq|
-  9. Troubleshooting ................... |okuban-troubleshooting|
+  8. GitHub Projects v2 ................ |okuban-projects|
+  9. FAQ ............................... |okuban-faq|
+  10. Troubleshooting .................. |okuban-troubleshooting|
 
 ==============================================================================
 1. INTRODUCTION                                          *okuban-introduction*
@@ -65,6 +66,20 @@ Then run `:OkubanSetup` to create the kanban labels on your repo.
   okuban:in-progress, okuban:review, okuban:done).
   With `--full`: also creates type, priority, and community labels.
 
+:OkubanSource {source} [number]                             *:OkubanSource*
+  Switch the board data source at runtime.
+  - `:OkubanSource labels` — switch to label-based board (default)
+  - `:OkubanSource project` — switch to project-based board (shows picker)
+  - `:OkubanSource project 1` — switch to project #1
+  Without arguments: prints the current source.
+  See |okuban-projects| for details.
+
+:OkubanMigrate project [number]                            *:OkubanMigrate*
+  Migrate label-based board positions into a GitHub Project. For each issue
+  on the label board, adds it to the project and sets the Status field to
+  match the column name. This is a one-time helper — labels are not removed.
+  Requires `project` scope: `gh auth refresh -s project`
+
 ==============================================================================
 5. KEYBINDINGS                                           *okuban-keybindings*
 
@@ -103,6 +118,12 @@ on the issue state.
 
 Pass options to `setup()`: >lua
   require("okuban").setup({
+    source = "labels",        -- "labels" or "project"
+    project = {
+      number = nil,           -- project number (nil = show picker)
+      owner = nil,            -- project owner (nil = auto-detect)
+      done_limit = 20,        -- max items per column in project mode
+    },
     columns = {
       { label = "okuban:backlog",     name = "Backlog",     color = "#c5def5" },
       { label = "okuban:todo",        name = "Todo",        color = "#0075ca" },
@@ -117,6 +138,16 @@ Pass options to `setup()`: >lua
     preview_lines = 8,
     show_tldr = true,
     poll_interval = 20,
+    global_keymaps = {
+      open           = "<leader>bb",
+      close          = "<leader>bq",
+      refresh        = "<leader>br",
+      setup          = "<leader>bs",
+      setup_full     = "<leader>bS",
+      source_labels  = "<leader>bl",
+      source_project = "<leader>bp",
+      migrate        = "<leader>bm",
+    },
     keymaps = {
       column_left  = "h",
       column_right = "l",
@@ -150,6 +181,20 @@ Pass options to `setup()`: >lua
 <
 
 Options ~
+
+source                                               *okuban-config-source*
+  Type: `string`, Default: `"labels"`
+  Data source for the board. Either "labels" (default) or "project".
+  In label mode, columns come from the `columns` config option.
+  In project mode, columns come from the project's Status field.
+  Can be changed at runtime with |:OkubanSource|.
+
+project                                             *okuban-config-project*
+  Type: `table`
+  GitHub Projects v2 settings. Only used when `source = "project"`.
+  - `number` (integer|nil): Project number. Nil shows a picker.
+  - `owner` (string|nil): Project owner (user or org). Nil auto-detects.
+  - `done_limit` (integer): Max items per column. Default: 20.
 
 columns                                             *okuban-config-columns*
   Type: `table[]`
@@ -186,6 +231,30 @@ show_tldr                                           *okuban-config-show-tldr*
 poll_interval                                   *okuban-config-poll-interval*
   Type: `integer`, Default: `20`
   Auto-refresh interval in seconds. Set to 0 to disable auto-polling.
+
+global_keymaps                                 *okuban-config-global-keymaps*
+  Type: `table`
+  Global keymaps registered on `setup()`. Set any key to `false` to disable.
+  Default prefix: `<leader>b` (b for board).
+
+  Key              Default            Command ~
+  open             `<leader>bb`       `:Okuban`
+  close            `<leader>bq`       `:OkubanClose`
+  refresh          `<leader>br`       `:OkubanRefresh`
+  setup            `<leader>bs`       `:OkubanSetup`
+  setup_full       `<leader>bS`       `:OkubanSetup --full`
+  source_labels    `<leader>bl`       `:OkubanSource labels`
+  source_project   `<leader>bp`       `:OkubanSource project`
+  migrate          `<leader>bm`       `:OkubanMigrate project`
+
+  Example: >lua
+    require("okuban").setup({
+      global_keymaps = {
+        open = "<leader>ob",   -- remap
+        migrate = false,       -- disable
+      },
+    })
+<
 
 keymaps                                             *okuban-config-keymaps*
   Type: `table`
@@ -271,11 +340,53 @@ Session details appear in the preview pane when a card with an active
 session is selected.
 
 ==============================================================================
-8. FAQ                                                           *okuban-faq*
+8. GITHUB PROJECTS V2                                        *okuban-projects*
+
+okuban supports GitHub Projects v2 as an alternative data source. Instead
+of reading labels, the board reads from a project's Status field.
+
+Upgrade Path ~
+
+1. Start with labels (default, zero config) — `:OkubanSetup`, then `:Okuban`
+2. Create a GitHub Project via the web UI
+3. Switch: `:OkubanSource project` (shows a picker)
+4. Migrate (optional): `:OkubanMigrate project` copies label positions
+5. Switch back any time: `:OkubanSource labels`
+
+Requirements ~
+
+GitHub Projects v2 requires the `project` OAuth scope: >bash
+  gh auth refresh -s project
+<
+
+How It Works ~
+
+- Columns come from the project's Status field options
+- Moving a card updates the Status field via `gh project item-edit`
+- `:OkubanSetup` only creates labels — never creates/modifies projects
+- Issues, labels, assignees, and body are read from the issue itself
+- Project ID and field IDs are cached for the session (fast refreshes)
+
+Permanent Config ~
+
+To always use a project: >lua
+  require("okuban").setup({
+    source = "project",
+    project = {
+      number = 1,
+      owner = "myorg",
+    },
+  })
+<
+
+See |okuban-config-source| and |okuban-config-project| for all options.
+
+==============================================================================
+9. FAQ                                                           *okuban-faq*
 
 Q: Do I need GitHub Projects? ~
-A: No. okuban.nvim uses GitHub issue labels as its data source. You only
-need issues and labels.
+A: No. By default, okuban uses labels. If your team uses a GitHub Project,
+switch to it with `:OkubanSource project`. See |okuban-projects|.
 
 Q: Can I customize the columns? ~
 A: Yes. Pass a `columns` table to `setup()` with your own labels, names,
@@ -306,7 +417,7 @@ keeps the board responsive. Change it via the `limit` field on the column.
 See |okuban-config-columns|.
 
 ==============================================================================
-9. TROUBLESHOOTING                                   *okuban-troubleshooting*
+10. TROUBLESHOOTING                                  *okuban-troubleshooting*
 
 "gh CLI not found" ~
   Install from https://cli.github.com, then run `gh auth login`.
@@ -317,6 +428,10 @@ See |okuban-config-columns|.
 "Labels not showing up" ~
   Run `:OkubanSetup` to create the default labels, then assign them to
   your issues.
+
+"GitHub Projects requires additional permissions" ~
+  Run `gh auth refresh -s project` to add the project scope. Only needed
+  when using `source = "project"`.
 
 "Claude Code not available" ~
   Install Claude Code from https://claude.ai/code. This is optional — the

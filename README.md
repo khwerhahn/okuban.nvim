@@ -63,15 +63,53 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 {
   "khwerhahn/okuban.nvim",
-  cmd = { "Okuban", "OkubanSetup" },
+  cmd = { "Okuban", "OkubanSetup", "OkubanSource", "OkubanMigrate" },
+  keys = {
+    { "<leader>bb", "<cmd>Okuban<cr>", desc = "Open kanban board" },
+    { "<leader>bq", "<cmd>OkubanClose<cr>", desc = "Close kanban board" },
+    { "<leader>br", "<cmd>OkubanRefresh<cr>", desc = "Refresh kanban board" },
+    { "<leader>bs", "<cmd>OkubanSetup<cr>", desc = "Create kanban labels" },
+    { "<leader>bS", "<cmd>OkubanSetup --full<cr>", desc = "Create all labels (full)" },
+    { "<leader>bl", "<cmd>OkubanSource labels<cr>", desc = "Switch to label source" },
+    { "<leader>bp", "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
+    { "<leader>bm", "<cmd>OkubanMigrate project<cr>", desc = "Migrate labels to project" },
+  },
   opts = {},
 }
 ```
+
+The `keys` entries register at startup (so `<leader>b` works immediately) and trigger lazy-loading on first use. The `cmd` entries let you use `:Okuban` etc. directly.
 
 Using [vim-plug](https://github.com/junegunn/vim-plug):
 
 ```vim
 Plug 'khwerhahn/okuban.nvim'
+```
+
+### Global Keymaps
+
+okuban.nvim registers global keymaps on `setup()` using the `<leader>b` prefix (**b** for board):
+
+| Key | Command | Description |
+|-----|---------|-------------|
+| `<leader>bb` | `:Okuban` | Open kanban board |
+| `<leader>bq` | `:OkubanClose` | Close kanban board |
+| `<leader>br` | `:OkubanRefresh` | Refresh kanban board |
+| `<leader>bs` | `:OkubanSetup` | Create kanban labels |
+| `<leader>bS` | `:OkubanSetup --full` | Create all labels (full set) |
+| `<leader>bl` | `:OkubanSource labels` | Switch to label source |
+| `<leader>bp` | `:OkubanSource project` | Switch to project source |
+| `<leader>bm` | `:OkubanMigrate project` | Migrate labels to project |
+
+Remap or disable any key via the `global_keymaps` config option:
+
+```lua
+require("okuban").setup({
+  global_keymaps = {
+    open = "<leader>ob",   -- remap to a different key
+    migrate = false,       -- disable this keymap entirely
+  },
+})
 ```
 
 ## Quick Start
@@ -93,7 +131,18 @@ All options with their defaults:
 
 ```lua
 require("okuban").setup({
-  -- Label-to-column mapping (order = left-to-right on the board)
+  -- Data source: "labels" (default) or "project" (GitHub Projects v2)
+  source = "labels",
+
+  -- GitHub Projects v2 settings (only used when source = "project")
+  project = {
+    number = nil,       -- project number (nil = show picker on first :Okuban)
+    owner = nil,        -- project owner (nil = auto-detect from repo)
+    done_limit = 20,    -- max items to show per column
+  },
+
+  -- Label-to-column mapping (only used when source = "labels")
+  -- In project mode, columns are read from the project's Status field
   columns = {
     { label = "okuban:backlog",     name = "Backlog",     color = "#c5def5" },
     { label = "okuban:todo",        name = "Todo",        color = "#0075ca" },
@@ -119,6 +168,18 @@ require("okuban").setup({
 
   -- Auto-refresh interval in seconds (0 to disable)
   poll_interval = 20,
+
+  -- Global keymaps (set false to disable, or change the key)
+  global_keymaps = {
+    open           = "<leader>bb",
+    close          = "<leader>bq",
+    refresh        = "<leader>br",
+    setup          = "<leader>bs",
+    setup_full     = "<leader>bS",
+    source_labels  = "<leader>bl",
+    source_project = "<leader>bp",
+    migrate        = "<leader>bm",
+  },
 
   -- Board keymaps (all buffer-local to the board windows)
   keymaps = {
@@ -182,6 +243,9 @@ vim.api.nvim_set_hl(0, "OkubanCardActive", { fg = "#ff9e64", bold = true })
 | `:OkubanSetup --full` | Create kanban + type + priority + community labels |
 | `:OkubanRefresh` | Refresh the current board |
 | `:OkubanClose` | Close the kanban overlay |
+| `:OkubanSource labels` | Switch to label-based board |
+| `:OkubanSource project [N]` | Switch to project-based board (picker if no number) |
+| `:OkubanMigrate project [N]` | Copy label board positions into a GitHub Project |
 
 ## Keybindings
 
@@ -245,14 +309,17 @@ See [docs/label-setup.md](docs/label-setup.md) for the full label reference with
 - [x] Issue templates, PR template, CONTRIBUTING.md
 
 ### v1.0: GitHub Projects v2
-- [ ] GitHub Projects v2 as an alternative/additional data source (GraphQL API)
-- [ ] Custom field support (priority, iteration, size)
-- [ ] Sync between labels and project board columns
+- [x] GitHub Projects v2 as an alternative data source (GraphQL API)
+- [x] `:OkubanSource` command for runtime source switching
+- [x] `:OkubanMigrate` command for one-time label→project migration
+- [ ] Custom field support (priority, iteration, size) on cards
 
 ## FAQ
 
 **Do I need GitHub Projects?**
-No. okuban.nvim uses GitHub issue labels as its data source. You only need issues and labels — no Projects board setup required.
+No. By default, okuban.nvim uses GitHub issue labels as its data source. You only need issues and labels — no Projects board setup required.
+
+If your team already uses a GitHub Project, you can switch to it as the data source with `:OkubanSource project`. Columns are read from the project's Status field instead of labels. See [GitHub Projects v2](#github-projects-v2) below.
 
 **Can I customize the columns?**
 Yes. Pass a `columns` table to `setup()` with your own labels, names, and colors:
@@ -308,6 +375,49 @@ columns = {
 },
 ```
 
+## GitHub Projects v2
+
+okuban supports GitHub Projects v2 as an alternative data source. Instead of reading labels, the board reads from a project's Status field.
+
+### Upgrade Path
+
+1. **Start with labels** (default, zero config) — run `:OkubanSetup`, use `:Okuban`
+2. **Create a GitHub Project** via the web UI, add issues, configure Status columns
+3. **Switch to the project** — run `:OkubanSource project` in Neovim, pick your project
+4. **Migrate cards** (optional) — run `:OkubanMigrate project` to copy label-based positions into the project
+5. **Switch back** any time — run `:OkubanSource labels`
+
+### Requirements
+
+GitHub Projects v2 requires the `project` OAuth scope (not included by default):
+
+```bash
+gh auth refresh -s project
+```
+
+### Permanent Config
+
+To always use a project as the data source:
+
+```lua
+require("okuban").setup({
+  source = "project",
+  project = {
+    number = 1,        -- your project number
+    owner = "myorg",   -- user or org that owns the project
+  },
+})
+```
+
+If `number` is `nil`, okuban shows a picker on first open. If `owner` is `nil`, it auto-detects from the git remote.
+
+### How It Works
+
+- Columns come from the project's **Status** field options (the same ones that drive the board view on github.com)
+- Moving a card updates the Status field value via `gh project item-edit`
+- `:OkubanSetup` only creates labels — it never creates or modifies projects
+- Issues, labels, assignees, and body are still read from the issue itself (not project fields)
+
 ## Troubleshooting
 
 **"gh CLI not found"**
@@ -318,6 +428,9 @@ Run `gh auth login` and follow the prompts.
 
 **"Labels not showing up"**
 Run `:OkubanSetup` to create the default labels, then assign them to your issues.
+
+**"GitHub Projects requires additional permissions"**
+Run `gh auth refresh -s project` to add the `project` scope. This is only needed when using `source = "project"`.
 
 **"Claude Code not available"**
 Install Claude Code from https://claude.ai/code. This is optional — the board works fully without it.

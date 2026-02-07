@@ -28,8 +28,25 @@ local M = {}
 ---@field auto_push boolean
 ---@field auto_pr boolean
 
+---@class OkubanProjectConfig
+---@field number integer|nil Project number (nil = show picker on first :Okuban)
+---@field owner string|nil Project owner (nil = auto-detect from repo)
+---@field done_limit integer Max items to show per column (default: 20)
+
+---@class OkubanGlobalKeymaps
+---@field open string|false
+---@field close string|false
+---@field refresh string|false
+---@field setup string|false
+---@field setup_full string|false
+---@field source_labels string|false
+---@field source_project string|false
+---@field migrate string|false
+
 ---@class OkubanConfig
+---@field source "labels"|"project" Data source: "labels" (default) or "project"
 ---@field columns OkubanColumn[]
+---@field project OkubanProjectConfig
 ---@field show_unsorted boolean
 ---@field skip_preflight boolean
 ---@field github_hostname string|nil
@@ -37,6 +54,7 @@ local M = {}
 ---@field show_tldr boolean Show TLDR in preview pane from issue body (default: true)
 ---@field poll_interval integer Auto-refresh interval in seconds (0 to disable, default: 20)
 ---@field keymaps OkubanKeymaps
+---@field global_keymaps OkubanGlobalKeymaps
 ---@field claude OkubanClaudeConfig
 
 ---@type OkubanConfig
@@ -47,6 +65,12 @@ local defaults = {
     { label = "okuban:in-progress", name = "In Progress", color = "#fbca04" },
     { label = "okuban:review", name = "Review", color = "#d4c5f9" },
     { label = "okuban:done", name = "Done", color = "#0e8a16", state = "all", limit = 20 },
+  },
+  source = "labels",
+  project = {
+    number = nil,
+    owner = nil,
+    done_limit = 20,
   },
   show_unsorted = true,
   skip_preflight = false,
@@ -65,6 +89,16 @@ local defaults = {
     close = "q",
     refresh = "r",
     help = "?",
+  },
+  global_keymaps = {
+    open = "<leader>bb",
+    close = "<leader>bq",
+    refresh = "<leader>br",
+    setup = "<leader>bs",
+    setup_full = "<leader>bS",
+    source_labels = "<leader>bl",
+    source_project = "<leader>bp",
+    migrate = "<leader>bm",
   },
   claude = {
     enabled = true,
