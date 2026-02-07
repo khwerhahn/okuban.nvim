@@ -76,17 +76,17 @@ Plug 'khwerhahn/okuban.nvim'
 
 ### Suggested Keymaps
 
-okuban.nvim does not set any global keymaps. Add these to your config if you'd like quick access:
+okuban.nvim does not set any global keymaps. Add these to your config if you'd like quick access (uses `<leader>K` for **K**anban):
 
 ```lua
-vim.keymap.set("n", "<leader>ok", "<cmd>Okuban<cr>", { desc = "Open kanban board" })
-vim.keymap.set("n", "<leader>oq", "<cmd>OkubanClose<cr>", { desc = "Close kanban board" })
-vim.keymap.set("n", "<leader>or", "<cmd>OkubanRefresh<cr>", { desc = "Refresh kanban board" })
-vim.keymap.set("n", "<leader>os", "<cmd>OkubanSetup<cr>", { desc = "Create kanban labels" })
-vim.keymap.set("n", "<leader>oS", "<cmd>OkubanSetup --full<cr>", { desc = "Create all labels (full)" })
-vim.keymap.set("n", "<leader>ol", "<cmd>OkubanSource labels<cr>", { desc = "Switch to label source" })
-vim.keymap.set("n", "<leader>op", "<cmd>OkubanSource project<cr>", { desc = "Switch to project source" })
-vim.keymap.set("n", "<leader>om", "<cmd>OkubanMigrate project<cr>", { desc = "Migrate labels to project" })
+vim.keymap.set("n", "<leader>Ko", "<cmd>Okuban<cr>", { desc = "Open kanban board" })
+vim.keymap.set("n", "<leader>Kq", "<cmd>OkubanClose<cr>", { desc = "Close kanban board" })
+vim.keymap.set("n", "<leader>Kr", "<cmd>OkubanRefresh<cr>", { desc = "Refresh kanban board" })
+vim.keymap.set("n", "<leader>Ks", "<cmd>OkubanSetup<cr>", { desc = "Create kanban labels" })
+vim.keymap.set("n", "<leader>KS", "<cmd>OkubanSetup --full<cr>", { desc = "Create all labels (full)" })
+vim.keymap.set("n", "<leader>Kl", "<cmd>OkubanSource labels<cr>", { desc = "Switch to label source" })
+vim.keymap.set("n", "<leader>Kp", "<cmd>OkubanSource project<cr>", { desc = "Switch to project source" })
+vim.keymap.set("n", "<leader>Km", "<cmd>OkubanMigrate project<cr>", { desc = "Migrate labels to project" })
 ```
 
 Or with lazy.nvim `keys`:
@@ -96,12 +96,12 @@ Or with lazy.nvim `keys`:
   "khwerhahn/okuban.nvim",
   cmd = { "Okuban", "OkubanSetup", "OkubanSource", "OkubanMigrate" },
   keys = {
-    { "<leader>ok", "<cmd>Okuban<cr>", desc = "Open kanban board" },
-    { "<leader>oq", "<cmd>OkubanClose<cr>", desc = "Close kanban board" },
-    { "<leader>or", "<cmd>OkubanRefresh<cr>", desc = "Refresh kanban board" },
-    { "<leader>os", "<cmd>OkubanSetup<cr>", desc = "Create kanban labels" },
-    { "<leader>op", "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
-    { "<leader>ol", "<cmd>OkubanSource labels<cr>", desc = "Switch to label source" },
+    { "<leader>Ko", "<cmd>Okuban<cr>", desc = "Open kanban board" },
+    { "<leader>Kq", "<cmd>OkubanClose<cr>", desc = "Close kanban board" },
+    { "<leader>Kr", "<cmd>OkubanRefresh<cr>", desc = "Refresh kanban board" },
+    { "<leader>Ks", "<cmd>OkubanSetup<cr>", desc = "Create kanban labels" },
+    { "<leader>Kp", "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
+    { "<leader>Kl", "<cmd>OkubanSource labels<cr>", desc = "Switch to label source" },
   },
   opts = {},
 }
