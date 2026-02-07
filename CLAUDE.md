@@ -483,11 +483,8 @@ This plugin targets the Neovim open-source community. All documentation must be 
 3. Monitor running Claude sessions with live status
 
 ### Phase 4: Polish & Community
-1. Telescope integration for repo picker
-2. Customizable colors/highlights
-3. Status line integration
-4. GitHub Actions CI (tests, StyLua, Luacheck)
-5. Issue templates, PR template, labels
+1. GitHub Actions CI (tests, StyLua, Luacheck)
+2. Issue templates, PR template, labels
 
 ### Phase 5: GitHub Projects v2 (v1.0)
 1. GitHub Projects v2 as alternative/additional data source (GraphQL API)

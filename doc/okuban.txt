@@ -203,6 +203,21 @@ claude                                               *okuban-config-claude*
   - `auto_push` (boolean): Push branch on completion. Default: false.
   - `auto_pr` (boolean): Create PR on completion. Default: false.
 
+Highlight Groups ~
+                                                    *okuban-highlight-groups*
+All highlight groups use `default = true`, so you can override them in
+your config:
+
+  Group                 Default Link    Used For ~
+  OkubanCardFocused     CursorLine      Currently selected card
+  OkubanColumnHeader    Title           Column header text
+  OkubanCardActive      WarningMsg      Card with an active worktree
+
+Example: >lua
+  vim.api.nvim_set_hl(0, "OkubanCardFocused", { bg = "#2d3f76" })
+  vim.api.nvim_set_hl(0, "OkubanCardActive", { fg = "#ff9e64", bold = true })
+<
+
 ==============================================================================
 7. FEATURES                                                 *okuban-features*
 
