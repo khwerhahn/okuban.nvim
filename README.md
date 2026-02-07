@@ -64,9 +64,21 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 {
   "khwerhahn/okuban.nvim",
   cmd = { "Okuban", "OkubanSetup", "OkubanSource", "OkubanMigrate" },
+  keys = {
+    { "<leader>Ko", "<cmd>Okuban<cr>", desc = "Open kanban board" },
+    { "<leader>Kq", "<cmd>OkubanClose<cr>", desc = "Close kanban board" },
+    { "<leader>Kr", "<cmd>OkubanRefresh<cr>", desc = "Refresh kanban board" },
+    { "<leader>Ks", "<cmd>OkubanSetup<cr>", desc = "Create kanban labels" },
+    { "<leader>KS", "<cmd>OkubanSetup --full<cr>", desc = "Create all labels (full)" },
+    { "<leader>Kl", "<cmd>OkubanSource labels<cr>", desc = "Switch to label source" },
+    { "<leader>Kp", "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
+    { "<leader>Km", "<cmd>OkubanMigrate project<cr>", desc = "Migrate labels to project" },
+  },
   opts = {},
 }
 ```
+
+The `keys` entries register at startup (so `<leader>K` works immediately) and trigger lazy-loading on first use. The `cmd` entries let you use `:Okuban` etc. directly.
 
 Using [vim-plug](https://github.com/junegunn/vim-plug):
 
