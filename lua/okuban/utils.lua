@@ -141,21 +141,45 @@ end
 -- Persistence — save/load per-repo state to Neovim data directory
 -- ---------------------------------------------------------------------------
 
---- Get the state file path for the current working directory.
----@return string
-function M.state_file_path()
+--- Detect the git repo root (synchronous, cached per cwd).
+---@return string|nil
+local _repo_root_for_cwd = {} ---@type table<string, string>
+function M.get_repo_root()
   local cwd = vim.fn.getcwd()
+  local cached = _repo_root_for_cwd[cwd]
+  if cached ~= nil then
+    return cached ~= "" and cached or nil
+  end
+  local result = vim.system({ "git", "rev-parse", "--show-toplevel" }, { text = true }):wait()
+  if result.code == 0 and result.stdout then
+    _repo_root_for_cwd[cwd] = vim.trim(result.stdout)
+  else
+    _repo_root_for_cwd[cwd] = "" -- mark as checked but not a repo
+  end
+  return _repo_root_for_cwd[cwd] ~= "" and _repo_root_for_cwd[cwd] or nil
+end
+
+--- Get the state file path for the current repo (keyed by git root, not cwd).
+---@return string|nil path, string key
+function M.state_file_path()
+  local root = M.get_repo_root()
+  if not root then
+    return nil, ""
+  end
   -- Sanitize path: replace non-alphanumeric chars with underscores
-  local key = cwd:gsub("[^%w]", "_")
+  local key = root:gsub("[^%w]", "_")
   local dir = vim.fn.stdpath("data") .. "/okuban"
   vim.fn.mkdir(dir, "p")
-  return dir .. "/" .. key .. ".json"
+  return dir .. "/" .. key .. ".json", key
 end
 
 --- Save per-repo state to disk.
 ---@param state table { source?: string, project_number?: integer, project_owner?: string }
 function M.save_state(state)
   local path = M.state_file_path()
+  if not path then
+    return
+  end
   local ok, json = pcall(vim.json.encode, state)
   if not ok then
     return
@@ -171,6 +195,9 @@ end
 ---@return table|nil
 function M.load_state()
   local path = M.state_file_path()
+  if not path then
+    return nil
+  end
   local f = io.open(path, "r")
   if not f then
     return nil

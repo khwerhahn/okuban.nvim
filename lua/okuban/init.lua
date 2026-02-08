@@ -32,14 +32,17 @@ function M._register_global_keymaps()
 end
 
 --- Restore saved per-repo state into the live config.
---- Tracked per-cwd so switching repos in the same session works.
+--- Tracked per-repo-root so switching repos in the same session works.
 local _state_loaded_for = {} ---@type table<string, boolean>
 function M._load_saved_state()
-  local cwd = vim.fn.getcwd()
-  if _state_loaded_for[cwd] then
+  local _, key = utils.state_file_path()
+  if key == "" then
+    return -- not inside a git repo
+  end
+  if _state_loaded_for[key] then
     return
   end
-  _state_loaded_for[cwd] = true
+  _state_loaded_for[key] = true
   local state = utils.load_state()
   if not state then
     return
