@@ -309,6 +309,7 @@ function M.launch(issue, callback)
 
   -- Reserve the slot immediately to prevent race conditions
   active_sessions[issue_number] = { status = "initializing" }
+  utils.notify("Launching Claude for #" .. issue_number .. "...")
 
   -- Auth check (lazy, first use)
   M.check_auth(function(auth_ok, auth_err)

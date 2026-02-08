@@ -32,13 +32,14 @@ function M._register_global_keymaps()
 end
 
 --- Restore saved per-repo state into the live config.
---- Called once on first board open.
-local _state_loaded = false
+--- Tracked per-cwd so switching repos in the same session works.
+local _state_loaded_for = {} ---@type table<string, boolean>
 function M._load_saved_state()
-  if _state_loaded then
+  local cwd = vim.fn.getcwd()
+  if _state_loaded_for[cwd] then
     return
   end
-  _state_loaded = true
+  _state_loaded_for[cwd] = true
   local state = utils.load_state()
   if not state then
     return
@@ -163,6 +164,7 @@ function M.refresh()
     utils.notify("Board not open", vim.log.levels.WARN)
     return
   end
+  utils.notify("Refreshing...")
   api.fetch_all_columns(function(data)
     if not data then
       utils.notify("Failed to refresh", vim.log.levels.ERROR)
@@ -235,6 +237,7 @@ function M.set_source(source, project_number)
     end
   end
 
+  utils.notify("Switching to " .. source .. "...")
   if source == "project" then
     -- Check project scope first
     api.check_project_scope(function(ok, err)
@@ -264,6 +267,7 @@ end
 ---@param callback fun(number: integer|nil)
 function M._pick_project(callback)
   local api_project = require("okuban.api_project")
+  utils.notify("Loading projects...")
 
   -- Detect owner
   api_project.detect_owner(function(owner)
@@ -337,6 +341,7 @@ function M.migrate_to_project(project_number)
       end
 
       local function do_migrate(number)
+        utils.notify("Preparing migration...")
         local api_project = require("okuban.api_project")
 
         -- Detect owner if not already set
@@ -412,7 +417,10 @@ function M.migrate_to_project(project_number)
 
                     local function on_complete()
                       pending = pending - 1
-                      if pending == 0 then
+                      local done = migrated + failed
+                      if pending > 0 then
+                        utils.notify(string.format("Migrating... %d/%d", done + 1, total))
+                      else
                         if failed > 0 then
                           utils.notify(
                             string.format("Migrated %d issues, %d failed", migrated, failed),

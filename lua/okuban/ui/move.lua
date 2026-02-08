@@ -73,6 +73,7 @@ end
 ---@param to_name string Target column display name
 ---@param board table Board instance
 function M.execute_move(number, from_id, to_id, to_name, board)
+  utils.notify("Moving #" .. number .. " to " .. to_name .. "...")
   api.move_card(number, from_id, to_id, to_name, function(ok, err)
     if not ok then
       utils.notify("Failed to move #" .. number .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)

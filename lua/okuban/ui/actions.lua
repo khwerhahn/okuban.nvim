@@ -60,6 +60,7 @@ function M._build_actions(issue, board)
           if confirm ~= 1 then
             return
           end
+          utils.notify("Closing #" .. issue.number .. "...")
           api.close_issue(issue.number, function(ok, err)
             if ok then
               utils.notify("Closed #" .. issue.number)
@@ -84,6 +85,7 @@ function M._build_actions(issue, board)
       label = "Assign to me",
       callback = function()
         M.close()
+        utils.notify("Assigning #" .. issue.number .. "...")
         api.assign_issue(issue.number, function(ok, err)
           if ok then
             utils.notify("Assigned #" .. issue.number .. " to you")
