@@ -60,17 +60,18 @@ function M._build_actions(issue, board)
           if confirm ~= 1 then
             return
           end
-          utils.notify("Closing #" .. issue.number .. "...")
+          local stop = utils.spinner_start("Closing #" .. issue.number .. "...")
           api.close_issue(issue.number, function(ok, err)
             if ok then
-              utils.notify("Closed #" .. issue.number)
+              utils.spinner_update("Refreshing board...")
               api.fetch_all_columns(function(data)
+                stop("Closed #" .. issue.number)
                 if data then
                   board:refresh(data)
                 end
               end)
             else
-              utils.notify("Failed to close #" .. issue.number .. ": " .. (err or ""), vim.log.levels.ERROR)
+              stop("Failed to close #" .. issue.number .. ": " .. (err or ""))
             end
           end)
         end)
@@ -85,17 +86,18 @@ function M._build_actions(issue, board)
       label = "Assign to me",
       callback = function()
         M.close()
-        utils.notify("Assigning #" .. issue.number .. "...")
+        local stop = utils.spinner_start("Assigning #" .. issue.number .. "...")
         api.assign_issue(issue.number, function(ok, err)
           if ok then
-            utils.notify("Assigned #" .. issue.number .. " to you")
+            utils.spinner_update("Refreshing board...")
             api.fetch_all_columns(function(data)
+              stop("Assigned #" .. issue.number .. " to you")
               if data then
                 board:refresh(data)
               end
             end)
           else
-            utils.notify("Failed to assign #" .. issue.number .. ": " .. (err or ""), vim.log.levels.ERROR)
+            stop("Failed to assign #" .. issue.number .. ": " .. (err or ""))
           end
         end)
       end,

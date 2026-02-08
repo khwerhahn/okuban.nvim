@@ -73,17 +73,18 @@ end
 ---@param to_name string Target column display name
 ---@param board table Board instance
 function M.execute_move(number, from_id, to_id, to_name, board)
-  utils.notify("Moving #" .. number .. " to " .. to_name .. "...")
+  local stop = utils.spinner_start("Moving #" .. number .. " to " .. to_name .. "...")
   api.move_card(number, from_id, to_id, to_name, function(ok, err)
     if not ok then
-      utils.notify("Failed to move #" .. number .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)
+      stop("Failed to move #" .. number .. ": " .. (err or "unknown error"))
       return
     end
 
-    utils.notify("Moved #" .. number .. " to " .. to_name)
+    utils.spinner_update("Refreshing board...")
 
     -- Refresh the board
     api.fetch_all_columns(function(data)
+      stop("Moved #" .. number .. " to " .. to_name)
       if data then
         board:refresh(data)
       end

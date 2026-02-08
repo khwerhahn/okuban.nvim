@@ -68,24 +68,22 @@ describe("okuban.ui.move", function()
         refresh = function() end,
       }
 
-      -- Capture all notifications — the error comes after the loading message
-      local notifications = {}
+      -- Capture notifications from spinner stop (which calls vim.notify)
+      local notified_msg = nil
       local orig_notify = vim.notify
       vim.notify = function(msg)
-        table.insert(notifications, msg)
+        notified_msg = msg
       end
 
       move_mod.execute_move(42, "okuban:todo", "okuban:in-progress", "In Progress", mock_board)
 
       vim.wait(2000, function()
-        return #notifications >= 2
+        return notified_msg ~= nil
       end)
 
       vim.notify = orig_notify
-      -- Last notification should be the error
-      local last = notifications[#notifications]
-      assert.truthy(last)
-      assert.truthy(last:match("Failed"))
+      assert.truthy(notified_msg)
+      assert.truthy(notified_msg:match("Failed"))
     end)
   end)
 

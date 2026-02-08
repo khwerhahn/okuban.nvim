@@ -164,12 +164,13 @@ function M.refresh()
     utils.notify("Board not open", vim.log.levels.WARN)
     return
   end
-  utils.notify("Refreshing...")
+  local stop = utils.spinner_start("Refreshing board...")
   api.fetch_all_columns(function(data)
     if not data then
-      utils.notify("Failed to refresh", vim.log.levels.ERROR)
+      stop("Failed to refresh")
       return
     end
+    stop()
     board:refresh(data)
   end)
 end
@@ -237,18 +238,20 @@ function M.set_source(source, project_number)
     end
   end
 
-  utils.notify("Switching to " .. source .. "...")
+  local stop = utils.spinner_start("Switching to " .. source .. "...")
   if source == "project" then
     -- Check project scope first
     api.check_project_scope(function(ok, err)
       if not ok then
-        utils.notify(err, vim.log.levels.ERROR)
+        stop(err)
         return
       end
 
       if project_number then
+        stop("Source set to " .. source)
         apply_source()
       else
+        stop()
         -- Show project picker
         M._pick_project(function(number)
           if number then
@@ -259,6 +262,7 @@ function M.set_source(source, project_number)
       end
     end)
   else
+    stop("Source set to " .. source)
     apply_source()
   end
 end
@@ -267,12 +271,12 @@ end
 ---@param callback fun(number: integer|nil)
 function M._pick_project(callback)
   local api_project = require("okuban.api_project")
-  utils.notify("Loading projects...")
+  local stop = utils.spinner_start("Loading projects...")
 
   -- Detect owner
   api_project.detect_owner(function(owner)
     if not owner then
-      utils.notify("Could not detect repository owner", vim.log.levels.ERROR)
+      stop("Could not detect repository owner")
       callback(nil)
       return
     end
@@ -283,16 +287,18 @@ function M._pick_project(callback)
     -- List projects
     api_project.list_projects(owner, function(projects, err)
       if err or not projects then
-        utils.notify(err or "Failed to list projects", vim.log.levels.ERROR)
+        stop(err or "Failed to list projects")
         callback(nil)
         return
       end
 
       if #projects == 0 then
-        utils.notify("No projects found for " .. owner, vim.log.levels.WARN)
+        stop("No projects found for " .. owner)
         callback(nil)
         return
       end
+
+      stop()
 
       -- Build display list
       local items = {}
@@ -341,7 +347,7 @@ function M.migrate_to_project(project_number)
       end
 
       local function do_migrate(number)
-        utils.notify("Preparing migration...")
+        local stop_migrate = utils.spinner_start("Preparing migration...")
         local api_project = require("okuban.api_project")
 
         -- Detect owner if not already set
@@ -350,21 +356,23 @@ function M.migrate_to_project(project_number)
 
         local function with_owner(detected_owner)
           if not detected_owner then
-            utils.notify("Could not detect repository owner", vim.log.levels.ERROR)
+            stop_migrate("Could not detect repository owner")
             return
           end
 
+          utils.spinner_update("Fetching current board...")
           -- Fetch current label-based board
           require("okuban.api_labels").fetch_all_columns(function(board_data)
             if not board_data then
-              utils.notify("Failed to fetch current board", vim.log.levels.ERROR)
+              stop_migrate("Failed to fetch current board")
               return
             end
 
+            utils.spinner_update("Fetching project fields...")
             -- Fetch the target project's Status field
             api_project.fetch_status_field(number, detected_owner, function(field, field_err)
               if field_err or not field then
-                utils.notify(field_err or "Failed to fetch project fields", vim.log.levels.ERROR)
+                stop_migrate(field_err or "Failed to fetch project fields")
                 return
               end
 
@@ -374,10 +382,11 @@ function M.migrate_to_project(project_number)
                 option_map[opt.name:lower()] = opt.id
               end
 
+              utils.spinner_update("Resolving project ID...")
               -- Resolve project ID for item-edit
               api_project.resolve_project_id(number, detected_owner, function(project_id, id_err)
                 if id_err or not project_id then
-                  utils.notify(id_err or "Failed to resolve project ID", vim.log.levels.ERROR)
+                  stop_migrate(id_err or "Failed to resolve project ID")
                   return
                 end
 
@@ -394,7 +403,7 @@ function M.migrate_to_project(project_number)
                   vim.schedule(function()
                     local repo_url = vim.trim(repo_result.stdout or "")
                     if repo_url == "" then
-                      utils.notify("Could not detect repository URL", vim.log.levels.ERROR)
+                      stop_migrate("Could not detect repository URL")
                       return
                     end
 
@@ -405,11 +414,11 @@ function M.migrate_to_project(project_number)
                     end
 
                     if total == 0 then
-                      utils.notify("No issues to migrate", vim.log.levels.WARN)
+                      stop_migrate("No issues to migrate")
                       return
                     end
 
-                    utils.notify(string.format("Migrating %d issues to project #%d...", total, number))
+                    utils.spinner_update(string.format("Migrating 0/%d issues...", total))
 
                     local migrated = 0
                     local failed = 0
@@ -419,15 +428,12 @@ function M.migrate_to_project(project_number)
                       pending = pending - 1
                       local done = migrated + failed
                       if pending > 0 then
-                        utils.notify(string.format("Migrating... %d/%d", done + 1, total))
+                        utils.spinner_update(string.format("Migrating %d/%d issues...", done + 1, total))
                       else
                         if failed > 0 then
-                          utils.notify(
-                            string.format("Migrated %d issues, %d failed", migrated, failed),
-                            vim.log.levels.WARN
-                          )
+                          stop_migrate(string.format("Migrated %d issues, %d failed", migrated, failed))
                         else
-                          utils.notify(string.format("Migrated %d issues to project #%d", migrated, number))
+                          stop_migrate(string.format("Migrated %d issues to project #%d", migrated, number))
                         end
                       end
                     end

@@ -309,28 +309,33 @@ function M.launch(issue, callback)
 
   -- Reserve the slot immediately to prevent race conditions
   active_sessions[issue_number] = { status = "initializing" }
-  utils.notify("Launching Claude for #" .. issue_number .. "...")
+  local stop = utils.spinner_start("Launching Claude for #" .. issue_number .. "...")
 
   -- Auth check (lazy, first use)
   M.check_auth(function(auth_ok, auth_err)
     if not auth_ok then
       active_sessions[issue_number] = nil
+      stop(auth_err)
       callback(false, auth_err)
       return
     end
 
+    utils.spinner_update("Creating worktree...")
     -- Create worktree
     M.create_worktree(issue_number, function(wt_ok, wt_path, wt_err)
       if not wt_ok or not wt_path then
         active_sessions[issue_number] = nil
+        stop(wt_err or "Failed to create worktree")
         callback(false, wt_err or "Failed to create worktree")
         return
       end
 
+      utils.spinner_update("Fetching issue context...")
       -- Fetch issue context
       M.fetch_issue_context(issue_number, function(context, ctx_err)
         if not context then
           active_sessions[issue_number] = nil
+          stop(ctx_err or "Failed to fetch issue context")
           callback(false, ctx_err or "Failed to fetch issue context")
           return
         end
@@ -391,6 +396,7 @@ function M.launch(issue, callback)
 
         if job_id <= 0 then
           active_sessions[issue_number] = nil
+          stop("Failed to start claude process")
           callback(false, "Failed to start claude process")
           return
         end
@@ -406,7 +412,7 @@ function M.launch(issue, callback)
           started_at = os.time(),
         }
 
-        utils.notify("Claude started on #" .. issue_number)
+        stop("Claude started on #" .. issue_number)
         callback(true, nil)
       end)
     end)
