@@ -8,6 +8,8 @@ local cache = {
   column_field_name = nil, -- name of the field used for board columns (e.g. "Status", "Workflow Stage")
   status_field = nil, -- { id, options = [{ id, name }] }, fetched once
   item_map = {}, -- issue_number → item_node_id, rebuilt each fetch
+  board_data = nil, -- last fetched board data, survives board close/reopen
+  board_data_ts = 0, -- os.time() when board_data was last stored
 }
 
 --- Get the gh base command from the shared api module.
@@ -459,6 +461,8 @@ function M.fetch_all_columns(callback)
             return
           end
           local board_data = M.build_board_data(items, status_field, show_unsorted, proj.done_limit or 20)
+          cache.board_data = board_data
+          cache.board_data_ts = os.time()
           callback(board_data)
         end)
       end
@@ -611,12 +615,24 @@ function M.get_cached_column_field_name()
   return cache.column_field_name
 end
 
+--- Return cached board data if it exists and is younger than max_age seconds.
+---@param max_age integer Maximum cache age in seconds
+---@return table|nil board_data
+function M.get_cached_board_data(max_age)
+  if cache.board_data and (os.time() - cache.board_data_ts) < max_age then
+    return cache.board_data
+  end
+  return nil
+end
+
 --- Reset all caches (for testing and source switching).
 function M.reset_cache()
   cache.project_id = nil
   cache.column_field_name = nil
   cache.status_field = nil
   cache.item_map = {}
+  cache.board_data = nil
+  cache.board_data_ts = 0
 end
 
 --- Set cache values directly (for testing).
