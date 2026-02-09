@@ -210,6 +210,13 @@ function Navigation:setup_keymaps(buf)
     self.board:close()
   end, opts)
 
+  -- Always map <Esc> as an additional close key (unless it IS the close key)
+  if keymaps.close ~= "<Esc>" then
+    vim.keymap.set("n", "<Esc>", function()
+      self.board:close()
+    end, opts)
+  end
+
   vim.keymap.set("n", keymaps.refresh, function()
     local api = require("okuban.api")
     api.fetch_all_columns(function(data)

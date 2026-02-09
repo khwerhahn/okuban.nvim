@@ -399,12 +399,18 @@ function Board:open_loading()
   -- Create preview window
   self:_create_preview_window(layout)
 
-  -- Set up q keymap on loading buffers
+  -- Set up close keymaps on loading buffers
   local keymaps = cfg.keymaps
   for _, buf in ipairs(self.buffers) do
+    local buf_opts = { buffer = buf, nowait = true, silent = true }
     vim.keymap.set("n", keymaps.close, function()
       self:close()
-    end, { buffer = buf, nowait = true, silent = true })
+    end, buf_opts)
+    if keymaps.close ~= "<Esc>" then
+      vim.keymap.set("n", "<Esc>", function()
+        self:close()
+      end, buf_opts)
+    end
   end
 
   self:_setup_autocommands()
@@ -647,6 +653,10 @@ function Board:close()
     vim.api.nvim_del_augroup_by_id(self.augroup)
     self.augroup = nil
   end
+
+  -- Close any open popup windows (action menu, help)
+  require("okuban.ui.actions").close()
+  require("okuban.ui.help").close()
 
   -- Close preview window
   if self.preview_win and vim.api.nvim_win_is_valid(self.preview_win) then
