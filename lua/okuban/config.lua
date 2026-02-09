@@ -43,6 +43,11 @@ local M = {}
 ---@field source_project string|false
 ---@field migrate string|false
 
+---@class OkubanTriageConfig
+---@field enabled boolean Enable auto-triage after label setup (default: true)
+---@field include_closed boolean Include closed issues in triage (default: true)
+---@field ai_enabled boolean Allow AI-assisted triage via Claude CLI (default: true)
+
 ---@class OkubanConfig
 ---@field source "labels"|"project" Data source: "labels" (default) or "project"
 ---@field columns OkubanColumn[]
@@ -56,6 +61,7 @@ local M = {}
 ---@field keymaps OkubanKeymaps
 ---@field global_keymaps OkubanGlobalKeymaps
 ---@field claude OkubanClaudeConfig
+---@field triage OkubanTriageConfig
 
 ---@type OkubanConfig
 local defaults = {
@@ -116,6 +122,11 @@ local defaults = {
     worktree_base_dir = nil,
     auto_push = false,
     auto_pr = false,
+  },
+  triage = {
+    enabled = true,
+    include_closed = true,
+    ai_enabled = true,
   },
 }
 

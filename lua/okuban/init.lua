@@ -188,10 +188,14 @@ function M.setup_labels(opts)
     local full = opts and opts.full or false
     utils.notify("Creating labels" .. (full and " (full set)" or "") .. "...")
     api.create_all_labels(full, function(created, failed)
-      if failed > 0 then
-        utils.notify(string.format("Created %d labels, %d failed", created, failed), vim.log.levels.WARN)
-      else
-        utils.notify(string.format("Created %d labels", created))
+      local msg = failed > 0 and string.format("Created %d labels, %d failed", created, failed)
+        or string.format("Created %d labels", created)
+      utils.notify(msg, failed > 0 and vim.log.levels.WARN or nil)
+
+      -- Auto-triage existing issues after label creation
+      local cfg = config.get()
+      if cfg.triage.enabled then
+        require("okuban.triage").run()
       end
     end)
   end)

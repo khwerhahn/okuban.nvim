@@ -32,6 +32,15 @@ vim.api.nvim_create_user_command("OkubanSource", function(cmd)
   require("okuban").set_source(source, number)
 end, { desc = "Switch okuban data source (labels or project)", nargs = "?" })
 
+vim.api.nvim_create_user_command("OkubanTriage", function()
+  require("okuban.api").preflight(function(ok)
+    if not ok then
+      return
+    end
+    require("okuban.triage").run()
+  end)
+end, { desc = "Triage existing issues into okuban kanban columns" })
+
 vim.api.nvim_create_user_command("OkubanMigrate", function(cmd)
   local args = vim.split(cmd.args, "%s+", { trimempty = true })
   local target = args[1]
