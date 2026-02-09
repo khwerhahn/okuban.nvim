@@ -146,6 +146,16 @@ function M.edit_labels(number, remove_label, add_label, callback)
   return require("okuban.api_labels").edit_labels(number, remove_label, add_label, callback)
 end
 
+--- Return cached board data if fresh enough. Routes based on config.source.
+---@param max_age integer Maximum cache age in seconds
+---@return table|nil board_data
+function M.get_cached_board_data(max_age)
+  if config.get().source == "project" then
+    return require("okuban.api_project").get_cached_board_data(max_age)
+  end
+  return require("okuban.api_labels").get_cached_board_data(max_age)
+end
+
 --- Fetch all columns and return structured board data.
 --- Routes to api_labels or api_project based on config.source.
 ---@param callback fun(data: table|nil)

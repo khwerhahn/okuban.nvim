@@ -2,6 +2,10 @@ local utils = require("okuban.utils")
 
 local M = {}
 
+--- Session-level board data cache (survives board close/reopen).
+local board_cache = nil ---@type table|nil
+local board_cache_ts = 0 ---@type integer
+
 --- Get the gh base command from the shared api module.
 ---@return string[]
 local function gh_base_cmd()
@@ -158,6 +162,8 @@ function M.fetch_all_columns(callback)
       if cfg.show_unsorted then
         board_data.unsorted = results["_unsorted"] or {}
       end
+      board_cache = board_data
+      board_cache_ts = os.time()
       callback(board_data)
     end
   end
@@ -260,6 +266,16 @@ function M.create_all_labels(full, callback)
       end
     end)
   end
+end
+
+--- Return cached board data if it exists and is younger than max_age seconds.
+---@param max_age integer Maximum cache age in seconds
+---@return table|nil board_data
+function M.get_cached_board_data(max_age)
+  if board_cache and (os.time() - board_cache_ts) < max_age then
+    return board_cache
+  end
+  return nil
 end
 
 return M

@@ -111,33 +111,32 @@ function M.open()
   end)
 end
 
---- Fetch data and populate an already-opened loading board.
----@param board table Board instance (already showing loading skeleton)
-function M._open_board(board)
-  api.fetch_all_columns(function(data)
-    if not data then
-      utils.notify("Failed to fetch issues", vim.log.levels.ERROR)
-      board:close()
-      return
-    end
-    board:populate(data)
+local CACHE_MAX_AGE = 3600 -- 1 hour
 
-    -- First-open hint: if all kanban columns empty but unsorted has issues
-    if not board._hint_shown then
-      board._hint_shown = true
-      local all_empty = true
-      for _, col in ipairs(data.columns) do
-        if #col.issues > 0 then
-          all_empty = false
-          break
-        end
-      end
-      if all_empty and data.unsorted and #data.unsorted > 0 then
-        utils.notify("Tip: press Enter on a card to triage it into a column, or m to move it directly")
+--- Populate board with data and run first-open checks.
+---@param board table Board instance
+---@param data table Board data from api.fetch_all_columns
+---@param skip_focus boolean If true, skip auto-focus (used for cached data)
+function M._populate_board(board, data, skip_focus)
+  board:populate(data)
+
+  -- First-open hint: if all kanban columns empty but unsorted has issues
+  if not board._hint_shown then
+    board._hint_shown = true
+    local all_empty = true
+    for _, col in ipairs(data.columns) do
+      if #col.issues > 0 then
+        all_empty = false
+        break
       end
     end
+    if all_empty and data.unsorted and #data.unsorted > 0 then
+      utils.notify("Tip: press Enter on a card to triage it into a column, or m to move it directly")
+    end
+  end
 
-    -- Auto-focus: detect current issue and navigate to it
+  -- Auto-focus: detect current issue and navigate to it
+  if not skip_focus then
     local detect = require("okuban.detect")
     detect.detect_issue(function(issue_number)
       if not issue_number or not board:is_open() or not board.navigation then
@@ -150,6 +149,34 @@ function M._open_board(board)
         utils.notify("Focused on #" .. issue_number .. ": " .. title)
       end
     end)
+  end
+end
+
+--- Fetch data and populate an already-opened loading board.
+--- If cached data is available (< 1h old), shows it instantly and refreshes in background.
+---@param board table Board instance (already showing loading skeleton)
+function M._open_board(board)
+  -- Try cached data first for instant display
+  local cached = api.get_cached_board_data(CACHE_MAX_AGE)
+  if cached then
+    M._populate_board(board, cached, false)
+    -- Refresh in background
+    api.fetch_all_columns(function(data)
+      if data and board:is_open() then
+        board:refresh(data)
+      end
+    end)
+    return
+  end
+
+  -- No cache — fetch fresh (loading skeleton already visible)
+  api.fetch_all_columns(function(data)
+    if not data then
+      utils.notify("Failed to fetch issues", vim.log.levels.ERROR)
+      board:close()
+      return
+    end
+    M._populate_board(board, data, false)
   end)
 end
 
