@@ -5,6 +5,7 @@ local M = {}
 --- Session-level cache for project metadata.
 local cache = {
   project_id = nil, -- node ID (string), fetched once
+  column_field_name = nil, -- name of the field used for board columns (e.g. "Status", "Workflow Stage")
   status_field = nil, -- { id, options = [{ id, name }] }, fetched once
   item_map = {}, -- issue_number → item_node_id, rebuilt each fetch
 }
@@ -102,11 +103,99 @@ function M.resolve_project_id(number, owner, callback)
   end)
 end
 
---- Fetch the Status field and its options from a project.
+--- Build the GraphQL query for detecting the column field from project views.
+---@return string
+local function build_views_query()
+  return [[
+query($projectId: ID!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      views(first: 10) {
+        nodes {
+          layout
+          verticalGroupByFields(first: 1) {
+            nodes {
+              ... on ProjectV2SingleSelectField {
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}]]
+end
+
+--- Detect the column field from the project's Board view configuration.
+--- Falls back to "Status" if no Board view exists or no groupBy field is found.
+---@param project_id string Project node ID
+---@param callback fun(field_name: string)
+function M.detect_column_field(project_id, callback)
+  if cache.column_field_name then
+    callback(cache.column_field_name)
+    return
+  end
+
+  local query = build_views_query()
+  local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
+    "api",
+    "graphql",
+    "-f",
+    "query=" .. query,
+    "-F",
+    "projectId=" .. project_id,
+  })
+
+  vim.system(cmd, { text = true }, function(result)
+    vim.schedule(function()
+      if result.code ~= 0 then
+        cache.column_field_name = "Status"
+        callback("Status")
+        return
+      end
+      local ok, data = pcall(vim.json.decode, result.stdout)
+      if not ok or type(data) ~= "table" then
+        cache.column_field_name = "Status"
+        callback("Status")
+        return
+      end
+
+      local node = data.data and data.data.node
+      local views = node and node.views and node.views.nodes
+      if views then
+        for _, view in ipairs(views) do
+          if view.layout == "BOARD_LAYOUT" then
+            local group_fields = view.verticalGroupByFields and view.verticalGroupByFields.nodes
+            if group_fields and #group_fields > 0 and group_fields[1].name then
+              cache.column_field_name = group_fields[1].name
+              callback(group_fields[1].name)
+              return
+            end
+          end
+        end
+      end
+
+      -- No Board view or no groupBy field — default to Status
+      cache.column_field_name = "Status"
+      callback("Status")
+    end)
+  end)
+end
+
+--- Fetch a column field and its options from a project.
 ---@param number integer Project number
 ---@param owner string Project owner
+---@param field_name string|nil Field name to search for (default: "Status")
 ---@param callback fun(field: table|nil, err: string|nil)
-function M.fetch_status_field(number, owner, callback)
+function M.fetch_column_field(number, owner, field_name, callback)
+  -- Support old 3-arg call signature
+  if type(field_name) == "function" then
+    callback = field_name
+    field_name = "Status"
+  end
+  field_name = field_name or "Status"
+
   local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
     "project",
     "field-list",
@@ -130,7 +219,7 @@ function M.fetch_status_field(number, owner, callback)
       -- gh project field-list returns { fields: [...] }
       local fields = data.fields or data
       for _, field in ipairs(fields) do
-        if field.name == "Status" then
+        if field.name == field_name then
           callback({
             id = field.id,
             options = field.options or {},
@@ -138,41 +227,47 @@ function M.fetch_status_field(number, owner, callback)
           return
         end
       end
-      callback(nil, "No Status field found on project")
+      callback(nil, "No '" .. field_name .. "' field found on project")
     end)
   end)
 end
 
---- Build the GraphQL query for fetching project items with Status.
+--- Backwards-compatible alias.
+M.fetch_status_field = M.fetch_column_field
+
+--- Build the GraphQL query for fetching project items with a column field.
+---@param field_name string|nil Field name for column grouping (default: "Status")
 ---@return string
-local function build_items_query()
-  return [[
-query($projectId: ID!, $cursor: String) {
-  node(id: $projectId) {
-    ... on ProjectV2 {
-      items(first: 100, after: $cursor) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          id
-          fieldValueByName(name: "Status") {
-            ... on ProjectV2ItemFieldSingleSelectValue {
-              name
-              optionId
-            }
-          }
-          content {
-            ... on Issue {
-              number title body state
-              assignees(first: 5) { nodes { login } }
-              labels(first: 10) { nodes { name color } }
-            }
-            ... on DraftIssue { title body }
-          }
-        }
-      }
-    }
-  }
-}]]
+local function build_items_query(field_name)
+  field_name = field_name or "Status"
+  return "query($projectId: ID!, $cursor: String) {\n"
+    .. "  node(id: $projectId) {\n"
+    .. "    ... on ProjectV2 {\n"
+    .. "      items(first: 100, after: $cursor) {\n"
+    .. "        pageInfo { hasNextPage endCursor }\n"
+    .. "        nodes {\n"
+    .. "          id\n"
+    .. '          fieldValueByName(name: "'
+    .. field_name
+    .. '") {\n'
+    .. "            ... on ProjectV2ItemFieldSingleSelectValue {\n"
+    .. "              name\n"
+    .. "              optionId\n"
+    .. "            }\n"
+    .. "          }\n"
+    .. "          content {\n"
+    .. "            ... on Issue {\n"
+    .. "              number title body state\n"
+    .. "              assignees(first: 5) { nodes { login } }\n"
+    .. "              labels(first: 10) { nodes { name color } }\n"
+    .. "            }\n"
+    .. "            ... on DraftIssue { title body }\n"
+    .. "          }\n"
+    .. "        }\n"
+    .. "      }\n"
+    .. "    }\n"
+    .. "  }\n"
+    .. "}"
 end
 
 --- Fetch project items via GraphQL (single page).
@@ -180,7 +275,7 @@ end
 ---@param cursor string|nil Pagination cursor
 ---@param callback fun(items: table[]|nil, page_info: table|nil, err: string|nil)
 function M.fetch_items_page(project_id, cursor, callback)
-  local query = build_items_query()
+  local query = build_items_query(cache.column_field_name)
   local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
     "api",
     "graphql",
@@ -352,38 +447,49 @@ function M.fetch_all_columns(callback)
   local function with_project_id(project_id)
     cache.project_id = project_id
 
-    local function with_status_field(status_field)
-      cache.status_field = status_field
-      M.fetch_all_items(project_id, function(items, err)
-        if err then
-          utils.notify(err, vim.log.levels.ERROR)
+    local function with_column_field(field_name)
+      cache.column_field_name = field_name
+
+      local function with_status_field(status_field)
+        cache.status_field = status_field
+        M.fetch_all_items(project_id, function(items, err)
+          if err then
+            utils.notify(err, vim.log.levels.ERROR)
+            callback(nil)
+            return
+          end
+          local board_data = M.build_board_data(items, status_field, show_unsorted, proj.done_limit or 20)
+          callback(board_data)
+        end)
+      end
+
+      -- Use cached status field or fetch it
+      if cache.status_field then
+        with_status_field(cache.status_field)
+      else
+        local owner = proj.owner
+        local number = proj.number
+        if not owner or not number then
+          utils.notify("Project owner or number not configured", vim.log.levels.ERROR)
           callback(nil)
           return
         end
-        local board_data = M.build_board_data(items, status_field, show_unsorted, proj.done_limit or 20)
-        callback(board_data)
-      end)
+        M.fetch_column_field(number, owner, field_name, function(field, err)
+          if err or not field then
+            utils.notify(err or "Failed to fetch project fields", vim.log.levels.ERROR)
+            callback(nil)
+            return
+          end
+          with_status_field(field)
+        end)
+      end
     end
 
-    -- Use cached status field or fetch it
-    if cache.status_field then
-      with_status_field(cache.status_field)
+    -- Detect column field or use cached
+    if cache.column_field_name then
+      with_column_field(cache.column_field_name)
     else
-      local owner = proj.owner
-      local number = proj.number
-      if not owner or not number then
-        utils.notify("Project owner or number not configured", vim.log.levels.ERROR)
-        callback(nil)
-        return
-      end
-      M.fetch_status_field(number, owner, function(field, err)
-        if err or not field then
-          utils.notify(err or "Failed to fetch project fields", vim.log.levels.ERROR)
-          callback(nil)
-          return
-        end
-        with_status_field(field)
-      end)
+      M.detect_column_field(project_id, with_column_field)
     end
   end
 
@@ -499,9 +605,16 @@ function M.get_cached_project_id()
   return cache.project_id
 end
 
+--- Get the cached column field name.
+---@return string|nil
+function M.get_cached_column_field_name()
+  return cache.column_field_name
+end
+
 --- Reset all caches (for testing and source switching).
 function M.reset_cache()
   cache.project_id = nil
+  cache.column_field_name = nil
   cache.status_field = nil
   cache.item_map = {}
 end
@@ -509,9 +622,11 @@ end
 --- Set cache values directly (for testing).
 ---@param project_id string|nil
 ---@param status_field table|nil
-function M._set_cache(project_id, status_field)
+---@param column_field_name string|nil
+function M._set_cache(project_id, status_field, column_field_name)
   cache.project_id = project_id
   cache.status_field = status_field
+  cache.column_field_name = column_field_name
 end
 
 return M

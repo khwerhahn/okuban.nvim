@@ -68,19 +68,17 @@ describe("okuban.ui.move", function()
         refresh = function() end,
       }
 
-      local done = false
-      -- Capture notification
+      -- Capture notifications from spinner stop (which calls vim.notify)
       local notified_msg = nil
       local orig_notify = vim.notify
       vim.notify = function(msg)
         notified_msg = msg
-        done = true
       end
 
       move_mod.execute_move(42, "okuban:todo", "okuban:in-progress", "In Progress", mock_board)
 
       vim.wait(2000, function()
-        return done
+        return notified_msg ~= nil
       end)
 
       vim.notify = orig_notify
