@@ -55,6 +55,7 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
     -- Columns get 75% of available height, preview gets the rest
     local available = total_height - header_space - 3 -- 3 = 2 (preview border) + 1 (gap)
     local board_height = math.floor(available * 0.75)
+    board_height = math.floor(board_height * 0.8) -- 20% column height reduction for scroll
     if board_height < 5 then
       board_height = 5
     end
@@ -81,7 +82,10 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
       preview_row = preview_row,
     }
   else
-    local board_height = total_height - header_space
+    local board_height = math.floor((total_height - header_space) * 0.8)
+    if board_height < 5 then
+      board_height = 5
+    end
 
     -- Center the total visual block: header + gap + columns
     local total_visual = (header_inner + header_border) + header_gap + board_height + 2
@@ -679,6 +683,11 @@ function Board:_reposition()
       width = layout.board_width,
       height = layout.preview_height,
     })
+  end
+
+  -- Update scroll indicators after resize (window height may have changed)
+  if self.navigation then
+    self.navigation:update_scroll_indicators()
   end
 end
 

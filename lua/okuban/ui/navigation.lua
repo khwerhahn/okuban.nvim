@@ -149,6 +149,53 @@ function Navigation:highlight_current()
     local header = require("okuban.ui.header")
     header.enter_issue_mode(issue)
   end
+
+  -- Update scroll indicators on all column windows
+  self:update_scroll_indicators()
+end
+
+--- Update scroll indicator footers on all column windows.
+--- Shows "↓ N more" when cards overflow below, "↑ N" when scrolled past top.
+--- Uses partial nvim_win_set_config (valid in Neovim 0.10+: absent keys are unchanged).
+function Navigation:update_scroll_indicators()
+  for i, win in ipairs(self.board.windows) do
+    if not win or not vim.api.nvim_win_is_valid(win) then
+      goto continue
+    end
+
+    local total_cards = self:card_count(i)
+    if total_cards == 0 then
+      pcall(vim.api.nvim_win_set_config, win, { footer = "" })
+      goto continue
+    end
+
+    local win_height = vim.api.nvim_win_get_height(win)
+    if total_cards <= win_height then
+      pcall(vim.api.nvim_win_set_config, win, { footer = "" })
+    else
+      local first_visible = vim.fn.line("w0", win)
+      local last_visible = vim.fn.line("w$", win)
+      local above = first_visible - 1
+      local below = total_cards - last_visible
+
+      local parts = {}
+      if above > 0 then
+        table.insert(parts, "\xe2\x86\x91 " .. above)
+      end
+      if below > 0 then
+        table.insert(parts, "\xe2\x86\x93 " .. below .. " more")
+      end
+
+      if #parts > 0 then
+        local footer = " " .. table.concat(parts, "  ") .. " "
+        pcall(vim.api.nvim_win_set_config, win, { footer = footer, footer_pos = "center" })
+      else
+        pcall(vim.api.nvim_win_set_config, win, { footer = "" })
+      end
+    end
+
+    ::continue::
+  end
 end
 
 --- Navigate to the card matching the given issue number.
