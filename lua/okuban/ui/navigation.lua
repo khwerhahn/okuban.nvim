@@ -13,6 +13,7 @@ function Navigation.new(board)
   o.board = board
   o.column_index = 1
   o.card_index = 1
+  o.issue_mode = false
   return o
 end
 
@@ -138,8 +139,15 @@ function Navigation:highlight_current()
   end
 
   -- Update preview pane with selected issue
+  local issue = self:get_selected_issue()
   if self.board.update_preview then
-    self.board:update_preview(self:get_selected_issue())
+    self.board:update_preview(issue)
+  end
+
+  -- Update header when in issue mode
+  if self.issue_mode and issue then
+    local header = require("okuban.ui.header")
+    header.enter_issue_mode(issue)
   end
 end
 
@@ -160,6 +168,25 @@ function Navigation:focus_issue(issue_number)
     end
   end
   return false
+end
+
+--- Toggle issue mode on/off.
+--- In issue mode, the header shows issue-specific actions (view, close, assign, code).
+function Navigation:toggle_issue_mode()
+  local hdr = require("okuban.ui.header")
+  if self.issue_mode then
+    self.issue_mode = false
+    hdr.exit_issue_mode()
+  else
+    local issue = self:get_selected_issue()
+    if not issue then
+      local utils = require("okuban.utils")
+      utils.notify("No issue selected", vim.log.levels.WARN)
+      return
+    end
+    self.issue_mode = true
+    hdr.enter_issue_mode(issue)
+  end
 end
 
 --- Get the issue data for the currently selected card.
@@ -210,10 +237,14 @@ function Navigation:setup_keymaps(buf)
     self.board:close()
   end, opts)
 
-  -- Always map <Esc> as an additional close key (unless it IS the close key)
+  -- Esc: exit issue mode first, then close board
   if keymaps.close ~= "<Esc>" then
     vim.keymap.set("n", "<Esc>", function()
-      self.board:close()
+      if self.issue_mode then
+        self:toggle_issue_mode()
+      else
+        self.board:close()
+      end
     end, opts)
   end
 
@@ -231,10 +262,26 @@ function Navigation:setup_keymaps(buf)
     move.prompt_move(self.board)
   end, opts)
 
+  -- Enter: toggle issue mode (replaces action menu popup)
   vim.keymap.set("n", keymaps.open_actions, function()
-    local actions = require("okuban.ui.actions")
-    actions.open(self.board)
+    self:toggle_issue_mode()
   end, opts)
+
+  -- Issue-mode action keymaps (v, c, a, x)
+  local action_keys = { "v", "c", "a", "x" }
+  for _, key in ipairs(action_keys) do
+    vim.keymap.set("n", key, function()
+      if not self.issue_mode then
+        return
+      end
+      local issue = self:get_selected_issue()
+      if not issue then
+        return
+      end
+      local actions = require("okuban.ui.actions")
+      actions.execute_action(key, issue, self.board)
+    end, opts)
+  end
 
   vim.keymap.set("n", keymaps.help, function()
     local help = require("okuban.ui.help")

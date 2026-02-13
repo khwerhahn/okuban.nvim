@@ -205,6 +205,65 @@ describe("okuban.ui.navigation", function()
     end)
   end)
 
+  describe("issue_mode", function()
+    it("starts with issue_mode false", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      assert.is_false(nav.issue_mode)
+    end)
+
+    it("toggles issue_mode on when issue is selected", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+
+      -- Stub header module
+      package.loaded["okuban.ui.header"] = {
+        enter_issue_mode = function() end,
+        exit_issue_mode = function() end,
+      }
+
+      nav:toggle_issue_mode()
+      assert.is_true(nav.issue_mode)
+    end)
+
+    it("toggles issue_mode off when already in issue mode", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+
+      package.loaded["okuban.ui.header"] = {
+        enter_issue_mode = function() end,
+        exit_issue_mode = function() end,
+      }
+
+      nav.issue_mode = true
+      nav:toggle_issue_mode()
+      assert.is_false(nav.issue_mode)
+    end)
+
+    it("does not enter issue_mode on empty column", function()
+      local board = mock_board({ 0 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+
+      -- Stub utils.notify to suppress output
+      package.loaded["okuban.utils"] = {
+        notify = function() end,
+      }
+      package.loaded["okuban.ui.header"] = {
+        enter_issue_mode = function() end,
+        exit_issue_mode = function() end,
+      }
+
+      nav:toggle_issue_mode()
+      assert.is_false(nav.issue_mode)
+    end)
+  end)
+
   describe("empty columns", function()
     it("handles column with zero issues", function()
       local board = mock_board({ 0, 3, 0 })

@@ -1,6 +1,7 @@
 local card = require("okuban.ui.card")
 local claude = require("okuban.claude")
 local config = require("okuban.config")
+local header = require("okuban.ui.header")
 local utils = require("okuban.utils")
 local worktree = require("okuban.worktree")
 
@@ -20,6 +21,7 @@ end
 local ns_active = vim.api.nvim_create_namespace("okuban_worktree_active")
 
 --- Calculate layout dimensions for the board.
+--- Includes space for a 1-line header bar above the columns.
 ---@param num_cols integer
 ---@param screen_width integer|nil
 ---@param screen_height integer|nil
@@ -43,18 +45,26 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
 
   local total_height = math.floor(sh * 0.8)
 
+  -- Header: 1 line content + 2 border + 1 gap below = 4 rows
+  local header_inner = 1
+  local header_border = 2
+  local header_gap = 1
+  local header_space = header_inner + header_border + header_gap
+
   if preview_lines > 0 then
     -- Columns get 75% of available height, preview gets the rest
-    local available = total_height - 3 -- 3 = 2 (preview border) + 1 (gap)
+    local available = total_height - header_space - 3 -- 3 = 2 (preview border) + 1 (gap)
     local board_height = math.floor(available * 0.75)
     if board_height < 5 then
       board_height = 5
     end
     local effective_preview = available - board_height
 
-    -- Center the total visual block: columns + gap + preview (each with border)
-    local total_visual = board_height + 2 + 1 + effective_preview + 2
-    local start_row = math.floor((sh - total_visual) / 2)
+    -- Center the total visual block: header + gap + columns + gap + preview
+    local total_visual = (header_inner + header_border) + header_gap + board_height + 2 + 1 + effective_preview + 2
+    local block_start = math.floor((sh - total_visual) / 2)
+    local header_row = block_start
+    local start_row = block_start + header_space
     local start_col = math.floor((sw - board_width) / 2)
     local preview_row = start_row + board_height + 2 + 1
 
@@ -65,12 +75,19 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
       start_row = start_row,
       start_col = start_col,
       gap = gap,
+      header_row = header_row,
+      header_height = header_inner,
       preview_height = effective_preview,
       preview_row = preview_row,
     }
   else
-    local board_height = total_height
-    local start_row = math.floor((sh - board_height) / 2)
+    local board_height = total_height - header_space
+
+    -- Center the total visual block: header + gap + columns
+    local total_visual = (header_inner + header_border) + header_gap + board_height + 2
+    local block_start = math.floor((sh - total_visual) / 2)
+    local header_row = block_start
+    local start_row = block_start + header_space
     local start_col = math.floor((sw - board_width) / 2)
 
     return {
@@ -80,6 +97,8 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
       start_row = start_row,
       start_col = start_col,
       gap = gap,
+      header_row = header_row,
+      header_height = header_inner,
     }
   end
 end
@@ -313,6 +332,13 @@ function Board:_setup_autocommands()
     group = self.augroup,
     callback = function(ev)
       local closed_win = tonumber(ev.match)
+      local hwin = header.get_win()
+      if hwin and hwin == closed_win then
+        vim.schedule(function()
+          self:close()
+        end)
+        return
+      end
       if self.preview_win and self.preview_win == closed_win then
         vim.schedule(function()
           self:close()
@@ -348,6 +374,9 @@ function Board:open_loading()
   local preview_lines = cfg.preview_lines or 0
   local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines)
   self.augroup = vim.api.nvim_create_augroup("OkubanBoard", { clear = true })
+
+  -- Create header bar above columns
+  header.create(layout)
 
   -- Build placeholder column names
   local col_names = {}
@@ -510,10 +539,12 @@ function Board:populate(data)
   if self.navigation then
     local old_col = self.navigation.column_index
     local old_card = self.navigation.card_index
+    local old_issue_mode = self.navigation.issue_mode
     self.navigation = Navigation.new(self)
     self.navigation.column_index = math.min(old_col, self.navigation:num_columns())
     local count = self.navigation:card_count(self.navigation.column_index)
     self.navigation.card_index = math.min(old_card, math.max(1, count))
+    self.navigation.issue_mode = old_issue_mode or false
   else
     self.navigation = Navigation.new(self)
   end
@@ -542,6 +573,9 @@ function Board:open(data)
   local preview_lines = cfg.preview_lines or 0
   local layout = Board.calculate_layout(#cols, nil, nil, preview_lines)
   self.augroup = vim.api.nvim_create_augroup("OkubanBoard", { clear = true })
+
+  -- Create header bar above columns
+  header.create(layout)
 
   -- Fetch worktree map for card badges
   local wt_map = worktree.fetch_worktree_map()
@@ -633,6 +667,9 @@ function Board:_reposition()
     end
   end
 
+  -- Reposition header window
+  header.reposition(layout)
+
   -- Reposition preview window
   if self.preview_win and vim.api.nvim_win_is_valid(self.preview_win) and layout.preview_row then
     vim.api.nvim_win_set_config(self.preview_win, {
@@ -654,9 +691,10 @@ function Board:close()
     self.augroup = nil
   end
 
-  -- Close any open popup windows (action menu, help)
+  -- Close any open popup windows (action menu, help) and header
   require("okuban.ui.actions").close()
   require("okuban.ui.help").close()
+  header.close()
 
   -- Close preview window
   if self.preview_win and vim.api.nvim_win_is_valid(self.preview_win) then

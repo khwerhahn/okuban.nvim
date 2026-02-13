@@ -134,6 +134,23 @@ function M._build_actions(issue, board)
   return actions
 end
 
+--- Execute a specific action by key for the given issue.
+--- Used by navigation keymaps in issue mode (replaces popup interaction).
+---@param key string Action key (m, v, c, a, x)
+---@param issue table Issue data
+---@param board table Board instance
+---@return boolean executed True if action was found and executed
+function M.execute_action(key, issue, board)
+  local action_list = M._build_actions(issue, board)
+  for _, action in ipairs(action_list) do
+    if action.key == key then
+      action.callback()
+      return true
+    end
+  end
+  return false
+end
+
 --- Open the action menu for the currently selected card.
 ---@param board table Board instance
 function M.open(board)
