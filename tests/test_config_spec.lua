@@ -67,6 +67,10 @@ describe("okuban.config", function()
       assert.equals(20, config.get().poll_interval)
     end)
 
+    it("has initial_fetch_limit default of 10", function()
+      assert.equals(10, config.get().initial_fetch_limit)
+    end)
+
     it("has show_unsorted enabled", function()
       assert.is_true(config.get().show_unsorted)
     end)
@@ -145,6 +149,11 @@ describe("okuban.config", function()
       assert.equals(1, config.get().project.number)
       assert.equals("myorg", config.get().project.owner)
       assert.equals(20, config.get().project.done_limit)
+    end)
+
+    it("allows initial_fetch_limit override to 0 (disabled)", function()
+      config.setup({ initial_fetch_limit = 0 })
+      assert.equals(0, config.get().initial_fetch_limit)
     end)
 
     it("resets to defaults on each setup call", function()

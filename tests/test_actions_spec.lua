@@ -159,6 +159,35 @@ describe("okuban.ui.actions", function()
     end)
   end)
 
+  describe("execute_action", function()
+    it("finds move action for open issue", function()
+      local issue = { number = 42, title = "Test", state = "OPEN" }
+      local board = {}
+      local action_list = actions._build_actions(issue, board)
+      local found = false
+      for _, a in ipairs(action_list) do
+        if a.key == "m" then
+          found = true
+        end
+      end
+      assert.is_true(found)
+    end)
+
+    it("returns false for unknown key", function()
+      local issue = { number = 42, title = "Test", state = "OPEN" }
+      local board = {}
+      local result = actions.execute_action("z", issue, board)
+      assert.is_false(result)
+    end)
+
+    it("returns false for closed-issue-only actions on closed issues", function()
+      local issue = { number = 42, title = "Test", state = "CLOSED" }
+      local board = {}
+      local result = actions.execute_action("c", issue, board)
+      assert.is_false(result)
+    end)
+  end)
+
   describe("open_actions keymap", function()
     it("is configured as Enter by default", function()
       local keymaps = config.get().keymaps

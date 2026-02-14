@@ -144,19 +144,26 @@ function M.fetch_all_columns(callback)
   local total = #columns + (cfg.show_unsorted and 1 or 0)
   local pending = total
   local results = {}
+  local effective_limits = {}
+
+  local initial = cfg.initial_fetch_limit or 10
 
   local function on_done()
     pending = pending - 1
     if pending == 0 then
       -- Build ordered result
       local board_data = { columns = {} }
-      for _, col in ipairs(columns) do
+      for i, col in ipairs(columns) do
+        local issues = results[col.label] or {}
+        local eff = effective_limits[col.label]
         table.insert(board_data.columns, {
           label = col.label,
           name = col.name,
           color = col.color,
-          issues = results[col.label] or {},
+          issues = issues,
           limit = col.limit,
+          has_more = eff and #issues >= eff or false,
+          expanded = board_cache and board_cache.columns[i] and board_cache.columns[i].expanded or false,
         })
       end
       if cfg.show_unsorted then
@@ -169,8 +176,17 @@ function M.fetch_all_columns(callback)
   end
 
   -- Fire all column fetches in parallel
-  for _, col in ipairs(columns) do
-    M.fetch_column(col.label, col.state, col.limit, function(issues, err)
+  for i, col in ipairs(columns) do
+    local full_limit = col.limit or 100
+    -- Use initial limit unless this column was previously expanded
+    local prev = board_cache and board_cache.columns[i]
+    local effective = full_limit
+    if initial > 0 and not (prev and prev.expanded) then
+      effective = math.min(initial, full_limit)
+    end
+    effective_limits[col.label] = effective
+
+    M.fetch_column(col.label, col.state, effective, function(issues, err)
       if err then
         utils.notify(err, vim.log.levels.WARN)
       end
@@ -189,6 +205,50 @@ function M.fetch_all_columns(callback)
       on_done()
     end)
   end
+end
+
+--- Columns currently being expanded (concurrency guard).
+local expanding_columns = {}
+
+--- Expand a column by fetching more issues (re-fetch with full limit).
+---@param col_index integer Column index in board_data.columns (1-based)
+---@param callback fun(ok: boolean, err: string|nil)
+function M.expand_column(col_index, callback)
+  if not board_cache or not board_cache.columns[col_index] then
+    callback(false, "Column not found")
+    return
+  end
+  local col_data = board_cache.columns[col_index]
+  if col_data.expanded then
+    callback(true, nil)
+    return
+  end
+  if expanding_columns[col_index] then
+    callback(false, "Expansion already in progress")
+    return
+  end
+
+  local cfg = require("okuban.config").get()
+  local col_config = cfg.columns[col_index]
+  if not col_config then
+    callback(false, "Config not found")
+    return
+  end
+
+  expanding_columns[col_index] = true
+  local full_limit = col_config.limit or 100
+  M.fetch_column(col_config.label, col_config.state, full_limit, function(issues, err)
+    expanding_columns[col_index] = nil
+    if err then
+      callback(false, err)
+      return
+    end
+    col_data.issues = issues or {}
+    col_data.has_more = #col_data.issues >= full_limit
+    col_data.expanded = true
+    board_cache_ts = os.time()
+    callback(true, nil)
+  end)
 end
 
 -- ---------------------------------------------------------------------------

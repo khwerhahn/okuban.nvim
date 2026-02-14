@@ -114,7 +114,7 @@ describe("okuban.ui.navigation", function()
       assert.equals(2, nav.card_index)
     end)
 
-    it("does not move past last card", function()
+    it("does not move past last card when has_more is false", function()
       local board = mock_board({ 3 })
       local nav = Navigation.new(board)
       nav.highlight_current = function() end
@@ -122,6 +122,54 @@ describe("okuban.ui.navigation", function()
       nav.card_index = 3
       nav:move_down()
       assert.equals(3, nav.card_index)
+    end)
+
+    it("triggers _trigger_expand when at boundary with has_more", function()
+      local board = mock_board({ 3 })
+      board.columns[1].has_more = true
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+
+      local expand_called = false
+      nav._trigger_expand = function()
+        expand_called = true
+      end
+
+      nav.card_index = 3
+      nav:move_down()
+      assert.is_true(expand_called)
+    end)
+
+    it("does not trigger expand when _expanding is true", function()
+      local board = mock_board({ 3 })
+      board.columns[1].has_more = true
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+      nav._expanding = true
+
+      local expand_called = false
+      nav._trigger_expand = function()
+        expand_called = true
+      end
+
+      nav.card_index = 3
+      nav:move_down()
+      assert.is_false(expand_called)
+    end)
+
+    it("does not trigger expand on empty column", function()
+      local board = mock_board({ 0 })
+      board.columns[1].has_more = true
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+
+      local expand_called = false
+      nav._trigger_expand = function()
+        expand_called = true
+      end
+
+      nav:move_down()
+      assert.is_false(expand_called)
     end)
   end)
 
@@ -202,6 +250,82 @@ describe("okuban.ui.navigation", function()
       -- Position unchanged
       assert.equals(1, nav.column_index)
       assert.equals(1, nav.card_index)
+    end)
+  end)
+
+  describe("issue_mode", function()
+    it("starts with issue_mode false", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      assert.is_false(nav.issue_mode)
+    end)
+
+    it("toggles issue_mode on when issue is selected", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+
+      -- Stub header module
+      package.loaded["okuban.ui.header"] = {
+        enter_issue_mode = function() end,
+        exit_issue_mode = function() end,
+      }
+
+      nav:toggle_issue_mode()
+      assert.is_true(nav.issue_mode)
+    end)
+
+    it("toggles issue_mode off when already in issue mode", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+
+      package.loaded["okuban.ui.header"] = {
+        enter_issue_mode = function() end,
+        exit_issue_mode = function() end,
+      }
+
+      nav.issue_mode = true
+      nav:toggle_issue_mode()
+      assert.is_false(nav.issue_mode)
+    end)
+
+    it("does not enter issue_mode on empty column", function()
+      local board = mock_board({ 0 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+
+      -- Stub utils.notify to suppress output
+      package.loaded["okuban.utils"] = {
+        notify = function() end,
+      }
+      package.loaded["okuban.ui.header"] = {
+        enter_issue_mode = function() end,
+        exit_issue_mode = function() end,
+      }
+
+      nav:toggle_issue_mode()
+      assert.is_false(nav.issue_mode)
+    end)
+  end)
+
+  describe("update_scroll_indicators", function()
+    it("method exists on Navigation instances", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      assert.is_function(nav.update_scroll_indicators)
+    end)
+
+    it("does not crash on mock boards with fake windows", function()
+      local board = mock_board({ 5, 10 })
+      local nav = Navigation.new(board)
+      -- Should be a no-op since windows are fake integers (not valid win IDs)
+      assert.has_no.errors(function()
+        nav:update_scroll_indicators()
+      end)
     end)
   end)
 

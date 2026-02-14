@@ -197,6 +197,12 @@ describe("okuban.api fetch", function()
     end)
 
     it("passes Done column limit to fetch_column", function()
+      -- Disable lazy loading to test per-column limits directly
+      config.setup({ initial_fetch_limit = 0 })
+      package.loaded["okuban.api"] = nil
+      package.loaded["okuban.api_labels"] = nil
+      api = require("okuban.api")
+
       local responses = {}
       for i = 1, 6 do
         responses[i] = { code = 0, stdout = "[]" }

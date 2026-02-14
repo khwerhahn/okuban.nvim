@@ -13,6 +13,8 @@ function Navigation.new(board)
   o.board = board
   o.column_index = 1
   o.card_index = 1
+  o.issue_mode = false
+  o._expanding = false
   return o
 end
 
@@ -70,6 +72,12 @@ function Navigation:move_down()
   if self.card_index < count then
     self.card_index = self.card_index + 1
     self:highlight_current()
+  elseif count > 0 and not self._expanding then
+    -- At boundary: check if column has more to load
+    local col = self.board.columns and self.board.columns[self.column_index]
+    if col and col.has_more then
+      self:_trigger_expand()
+    end
   end
 end
 
@@ -79,6 +87,37 @@ function Navigation:move_up()
     self.card_index = self.card_index - 1
     self:highlight_current()
   end
+end
+
+--- Trigger lazy expansion of the current column.
+--- Shows a loading footer and fetches more issues via api.expand_column.
+function Navigation:_trigger_expand()
+  local col_index = self.column_index
+  local win = self.board.windows[col_index]
+
+  -- Show loading footer
+  if win and vim.api.nvim_win_is_valid(win) then
+    pcall(vim.api.nvim_win_set_config, win, {
+      footer = " \xe2\x86\x93 loading... ",
+      footer_pos = "center",
+    })
+  end
+
+  self._expanding = true
+  local api = require("okuban.api")
+  api.expand_column(col_index, function(ok, err)
+    self._expanding = false
+    if not ok then
+      local utils = require("okuban.utils")
+      utils.notify("Failed to load more: " .. (err or ""), vim.log.levels.WARN)
+      self:update_scroll_indicators()
+      return
+    end
+    -- Refresh board with expanded data
+    if self.board.data and self.board:is_open() then
+      self.board:refresh(self.board.data)
+    end
+  end)
 end
 
 --- Focus the window corresponding to the current column.
@@ -138,8 +177,62 @@ function Navigation:highlight_current()
   end
 
   -- Update preview pane with selected issue
+  local issue = self:get_selected_issue()
   if self.board.update_preview then
-    self.board:update_preview(self:get_selected_issue())
+    self.board:update_preview(issue)
+  end
+
+  -- Update header when in issue mode
+  if self.issue_mode and issue then
+    local header = require("okuban.ui.header")
+    header.enter_issue_mode(issue)
+  end
+
+  -- Update scroll indicators on all column windows
+  self:update_scroll_indicators()
+end
+
+--- Update scroll indicator footers on all column windows.
+--- Shows "↓ N more" when cards overflow below, "↑ N" when scrolled past top.
+--- Uses partial nvim_win_set_config (valid in Neovim 0.10+: absent keys are unchanged).
+function Navigation:update_scroll_indicators()
+  for i, win in ipairs(self.board.windows) do
+    if not win or not vim.api.nvim_win_is_valid(win) then
+      goto continue
+    end
+
+    local total_cards = self:card_count(i)
+    if total_cards == 0 then
+      pcall(vim.api.nvim_win_set_config, win, { footer = "" })
+      goto continue
+    end
+
+    local win_height = vim.api.nvim_win_get_height(win)
+    if total_cards <= win_height then
+      pcall(vim.api.nvim_win_set_config, win, { footer = "" })
+    else
+      local first_visible = vim.fn.line("w0", win)
+      local last_visible = vim.fn.line("w$", win)
+      local above = first_visible - 1
+      local below = total_cards - last_visible
+
+      local parts = {}
+      if above > 0 then
+        table.insert(parts, "\xe2\x86\x91 " .. above)
+      end
+      if below > 0 then
+        table.insert(parts, "\xe2\x86\x93 " .. below .. " more")
+      end
+
+      if #parts > 0 then
+        local footer = " " .. table.concat(parts, "  ") .. " "
+        pcall(vim.api.nvim_win_set_config, win, { footer = footer, footer_pos = "center" })
+      else
+        pcall(vim.api.nvim_win_set_config, win, { footer = "" })
+      end
+    end
+
+    ::continue::
   end
 end
 
@@ -160,6 +253,25 @@ function Navigation:focus_issue(issue_number)
     end
   end
   return false
+end
+
+--- Toggle issue mode on/off.
+--- In issue mode, the header shows issue-specific actions (view, close, assign, code).
+function Navigation:toggle_issue_mode()
+  local hdr = require("okuban.ui.header")
+  if self.issue_mode then
+    self.issue_mode = false
+    hdr.exit_issue_mode()
+  else
+    local issue = self:get_selected_issue()
+    if not issue then
+      local utils = require("okuban.utils")
+      utils.notify("No issue selected", vim.log.levels.WARN)
+      return
+    end
+    self.issue_mode = true
+    hdr.enter_issue_mode(issue)
+  end
 end
 
 --- Get the issue data for the currently selected card.
@@ -210,10 +322,14 @@ function Navigation:setup_keymaps(buf)
     self.board:close()
   end, opts)
 
-  -- Always map <Esc> as an additional close key (unless it IS the close key)
+  -- Esc: exit issue mode first, then close board
   if keymaps.close ~= "<Esc>" then
     vim.keymap.set("n", "<Esc>", function()
-      self.board:close()
+      if self.issue_mode then
+        self:toggle_issue_mode()
+      else
+        self.board:close()
+      end
     end, opts)
   end
 
@@ -231,10 +347,26 @@ function Navigation:setup_keymaps(buf)
     move.prompt_move(self.board)
   end, opts)
 
+  -- Enter: toggle issue mode (replaces action menu popup)
   vim.keymap.set("n", keymaps.open_actions, function()
-    local actions = require("okuban.ui.actions")
-    actions.open(self.board)
+    self:toggle_issue_mode()
   end, opts)
+
+  -- Issue-mode action keymaps (v, c, a, x)
+  local action_keys = { "v", "c", "a", "x" }
+  for _, key in ipairs(action_keys) do
+    vim.keymap.set("n", key, function()
+      if not self.issue_mode then
+        return
+      end
+      local issue = self:get_selected_issue()
+      if not issue then
+        return
+      end
+      local actions = require("okuban.ui.actions")
+      actions.execute_action(key, issue, self.board)
+    end, opts)
+  end
 
   vim.keymap.set("n", keymaps.help, function()
     local help = require("okuban.ui.help")

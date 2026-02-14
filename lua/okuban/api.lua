@@ -166,6 +166,16 @@ function M.fetch_all_columns(callback)
   return require("okuban.api_labels").fetch_all_columns(callback)
 end
 
+--- Expand a column by fetching more issues. Routes based on config.source.
+---@param col_index integer Column index in board_data.columns (1-based)
+---@param callback fun(ok: boolean, err: string|nil)
+function M.expand_column(col_index, callback)
+  if config.get().source == "project" then
+    return require("okuban.api_project").expand_column(col_index, callback)
+  end
+  return require("okuban.api_labels").expand_column(col_index, callback)
+end
+
 --- Fetch issues for a single label (label-mode only).
 ---@param label string The label to filter by
 ---@param state string|nil Issue state filter
