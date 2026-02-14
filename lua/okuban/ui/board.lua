@@ -128,7 +128,7 @@ end
 local function build_column_list(data)
   local cols = {}
   for _, col in ipairs(data.columns) do
-    table.insert(cols, { name = col.name, issues = col.issues, limit = col.limit })
+    table.insert(cols, { name = col.name, issues = col.issues, limit = col.limit, has_more = col.has_more })
   end
   if data.unsorted and #data.unsorted > 0 then
     table.insert(cols, { name = "Unsorted", issues = data.unsorted })

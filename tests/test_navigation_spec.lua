@@ -114,7 +114,7 @@ describe("okuban.ui.navigation", function()
       assert.equals(2, nav.card_index)
     end)
 
-    it("does not move past last card", function()
+    it("does not move past last card when has_more is false", function()
       local board = mock_board({ 3 })
       local nav = Navigation.new(board)
       nav.highlight_current = function() end
@@ -122,6 +122,54 @@ describe("okuban.ui.navigation", function()
       nav.card_index = 3
       nav:move_down()
       assert.equals(3, nav.card_index)
+    end)
+
+    it("triggers _trigger_expand when at boundary with has_more", function()
+      local board = mock_board({ 3 })
+      board.columns[1].has_more = true
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+
+      local expand_called = false
+      nav._trigger_expand = function()
+        expand_called = true
+      end
+
+      nav.card_index = 3
+      nav:move_down()
+      assert.is_true(expand_called)
+    end)
+
+    it("does not trigger expand when _expanding is true", function()
+      local board = mock_board({ 3 })
+      board.columns[1].has_more = true
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+      nav._expanding = true
+
+      local expand_called = false
+      nav._trigger_expand = function()
+        expand_called = true
+      end
+
+      nav.card_index = 3
+      nav:move_down()
+      assert.is_false(expand_called)
+    end)
+
+    it("does not trigger expand on empty column", function()
+      local board = mock_board({ 0 })
+      board.columns[1].has_more = true
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+
+      local expand_called = false
+      nav._trigger_expand = function()
+        expand_called = true
+      end
+
+      nav:move_down()
+      assert.is_false(expand_called)
     end)
   end)
 

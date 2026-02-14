@@ -10,6 +10,7 @@ local cache = {
   item_map = {}, -- issue_number → item_node_id, rebuilt each fetch
   board_data = nil, -- last fetched board data, survives board close/reopen
   board_data_ts = 0, -- os.time() when board_data was last stored
+  full_buckets = nil, -- full issue sets per option ID for expand
 }
 
 --- Get the gh base command from the shared api module.
@@ -386,8 +387,9 @@ end
 ---@param status_field table { id, options = [{ id, name }] }
 ---@param show_unsorted boolean
 ---@param done_limit integer
+---@param initial_limit integer|nil Initial display cap per column (nil = use done_limit)
 ---@return table board_data
-function M.build_board_data(items, status_field, show_unsorted, done_limit)
+function M.build_board_data(items, status_field, show_unsorted, done_limit, initial_limit)
   -- Build column buckets keyed by option ID
   local buckets = {}
   for _, opt in ipairs(status_field.options) do
@@ -410,24 +412,33 @@ function M.build_board_data(items, status_field, show_unsorted, done_limit)
     end
   end
 
+  -- Store full buckets for expand
+  cache.full_buckets = buckets
+
   -- Build columns in the order of status options
   local board_data = { columns = {} }
-  for _, opt in ipairs(status_field.options) do
-    local col_issues = buckets[opt.id] or {}
-    -- Apply done_limit-style capping — show at most done_limit items per column
-    if done_limit and #col_issues > done_limit then
-      local capped = {}
-      for i = 1, done_limit do
-        capped[i] = col_issues[i]
+  for i, opt in ipairs(status_field.options) do
+    local full_issues = buckets[opt.id] or {}
+    -- Use initial_limit for first load, unless column was previously expanded
+    local prev = cache.board_data and cache.board_data.columns[i]
+    local cap = (prev and prev.expanded) and done_limit or (initial_limit or done_limit)
+    local display = full_issues
+    local has_more = false
+    if cap and #full_issues > cap then
+      display = {}
+      for j = 1, cap do
+        display[j] = full_issues[j]
       end
-      col_issues = capped
+      has_more = true
     end
     table.insert(board_data.columns, {
       label = opt.id,
       name = opt.name,
       color = nil,
-      issues = col_issues,
+      issues = display,
       limit = done_limit,
+      has_more = has_more,
+      expanded = prev and prev.expanded or false,
     })
   end
 
@@ -460,7 +471,9 @@ function M.fetch_all_columns(callback)
             callback(nil)
             return
           end
-          local board_data = M.build_board_data(items, status_field, show_unsorted, proj.done_limit or 20)
+          local initial = cfg.initial_fetch_limit or 10
+          local init_limit = initial > 0 and initial or nil
+          local board_data = M.build_board_data(items, status_field, show_unsorted, proj.done_limit or 20, init_limit)
           cache.board_data = board_data
           cache.board_data_ts = os.time()
           callback(board_data)
@@ -586,6 +599,43 @@ function M.add_item(issue_url, project_number, owner, callback)
   end)
 end
 
+--- Expand a column by revealing full issues from cache (no network request).
+---@param col_index integer Column index in board_data.columns (1-based)
+---@param callback fun(ok: boolean, err: string|nil)
+function M.expand_column(col_index, callback)
+  if not cache.board_data or not cache.board_data.columns[col_index] then
+    callback(false, "Column not found")
+    return
+  end
+  local col_data = cache.board_data.columns[col_index]
+  if col_data.expanded then
+    callback(true, nil)
+    return
+  end
+
+  local full = cache.full_buckets and cache.full_buckets[col_data.label]
+  if not full then
+    callback(false, "No cached data")
+    return
+  end
+
+  local cfg = require("okuban.config").get()
+  local done_limit = cfg.project.done_limit or 20
+  local display = full
+  if #full > done_limit then
+    display = {}
+    for i = 1, done_limit do
+      display[i] = full[i]
+    end
+  end
+
+  col_data.issues = display
+  col_data.has_more = #full > done_limit
+  col_data.expanded = true
+  cache.board_data_ts = os.time()
+  callback(true, nil)
+end
+
 -- ---------------------------------------------------------------------------
 -- Cache accessors
 -- ---------------------------------------------------------------------------
@@ -633,6 +683,7 @@ function M.reset_cache()
   cache.item_map = {}
   cache.board_data = nil
   cache.board_data_ts = 0
+  cache.full_buckets = nil
 end
 
 --- Set cache values directly (for testing).

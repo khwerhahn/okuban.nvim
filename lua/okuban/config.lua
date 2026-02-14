@@ -58,6 +58,7 @@ local M = {}
 ---@field preview_lines integer Height of preview pane below board (0 to disable, default: 8)
 ---@field show_tldr boolean Show TLDR in preview pane from issue body (default: true)
 ---@field poll_interval integer Auto-refresh interval in seconds (0 to disable, default: 20)
+---@field initial_fetch_limit integer Initial issues per column (default: 10, 0 to disable lazy loading)
 ---@field keymaps OkubanKeymaps
 ---@field global_keymaps OkubanGlobalKeymaps
 ---@field claude OkubanClaudeConfig
@@ -84,6 +85,7 @@ local defaults = {
   preview_lines = 8,
   show_tldr = true,
   poll_interval = 20,
+  initial_fetch_limit = 10,
   keymaps = {
     column_left = "h",
     column_right = "l",

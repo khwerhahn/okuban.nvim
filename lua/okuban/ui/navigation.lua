@@ -14,6 +14,7 @@ function Navigation.new(board)
   o.column_index = 1
   o.card_index = 1
   o.issue_mode = false
+  o._expanding = false
   return o
 end
 
@@ -71,6 +72,12 @@ function Navigation:move_down()
   if self.card_index < count then
     self.card_index = self.card_index + 1
     self:highlight_current()
+  elseif count > 0 and not self._expanding then
+    -- At boundary: check if column has more to load
+    local col = self.board.columns and self.board.columns[self.column_index]
+    if col and col.has_more then
+      self:_trigger_expand()
+    end
   end
 end
 
@@ -80,6 +87,37 @@ function Navigation:move_up()
     self.card_index = self.card_index - 1
     self:highlight_current()
   end
+end
+
+--- Trigger lazy expansion of the current column.
+--- Shows a loading footer and fetches more issues via api.expand_column.
+function Navigation:_trigger_expand()
+  local col_index = self.column_index
+  local win = self.board.windows[col_index]
+
+  -- Show loading footer
+  if win and vim.api.nvim_win_is_valid(win) then
+    pcall(vim.api.nvim_win_set_config, win, {
+      footer = " \xe2\x86\x93 loading... ",
+      footer_pos = "center",
+    })
+  end
+
+  self._expanding = true
+  local api = require("okuban.api")
+  api.expand_column(col_index, function(ok, err)
+    self._expanding = false
+    if not ok then
+      local utils = require("okuban.utils")
+      utils.notify("Failed to load more: " .. (err or ""), vim.log.levels.WARN)
+      self:update_scroll_indicators()
+      return
+    end
+    -- Refresh board with expanded data
+    if self.board.data and self.board:is_open() then
+      self.board:refresh(self.board.data)
+    end
+  end)
 end
 
 --- Focus the window corresponding to the current column.
