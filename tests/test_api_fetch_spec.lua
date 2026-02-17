@@ -333,6 +333,94 @@ describe("okuban.api fetch", function()
     end)
   end)
 
+  describe("fetch_sub_issue_counts", function()
+    it("returns empty table on empty input", function()
+      local done = false
+      local result = nil
+      -- Need api_labels module directly for label-mode fetch
+      local api_labels = require("okuban.api_labels")
+      api_labels.fetch_sub_issue_counts({}, function(counts)
+        done = true
+        result = counts
+      end)
+
+      vim.wait(1000, function()
+        return done
+      end)
+      assert.is_not_nil(result)
+      assert.equals(0, vim.tbl_count(result))
+    end)
+
+    it("parses GraphQL response correctly", function()
+      -- First call: detect_repo_info (gh repo view)
+      -- Second call: GraphQL query
+      local graphql_response = vim.json.encode({
+        data = {
+          repository = {
+            i10 = { subIssuesSummary = { total = 3, completed = 1 } },
+            i20 = { subIssuesSummary = { total = 0, completed = 0 } },
+            i30 = { subIssuesSummary = { total = 5, completed = 5 } },
+          },
+        },
+      })
+      helpers.mock_vim_system({
+        { code = 0, stdout = "alice|myrepo" }, -- detect_repo_info
+        { code = 0, stdout = graphql_response }, -- GraphQL query
+      })
+
+      local api_labels = require("okuban.api_labels")
+      -- Reset repo info cache
+      api._reset_repo_info()
+
+      local done = false
+      local result = nil
+      api_labels.fetch_sub_issue_counts({ 10, 20, 30 }, function(counts)
+        done = true
+        result = counts
+      end)
+
+      vim.wait(2000, function()
+        return done
+      end)
+
+      assert.is_not_nil(result)
+      -- Issue 10: total=3 > 0, should be in result
+      assert.is_not_nil(result[10])
+      assert.equals(3, result[10].total)
+      assert.equals(1, result[10].completed)
+      -- Issue 20: total=0, should NOT be in result
+      assert.is_nil(result[20])
+      -- Issue 30: total=5 > 0, should be in result
+      assert.is_not_nil(result[30])
+      assert.equals(5, result[30].total)
+      assert.equals(5, result[30].completed)
+    end)
+
+    it("handles API errors gracefully", function()
+      helpers.mock_vim_system({
+        { code = 0, stdout = "alice|myrepo" }, -- detect_repo_info
+        { code = 1, stderr = "GraphQL error" }, -- GraphQL fails
+      })
+
+      local api_labels = require("okuban.api_labels")
+      api._reset_repo_info()
+
+      local done = false
+      local result = nil
+      api_labels.fetch_sub_issue_counts({ 10, 20 }, function(counts)
+        done = true
+        result = counts
+      end)
+
+      vim.wait(2000, function()
+        return done
+      end)
+
+      assert.is_not_nil(result)
+      assert.equals(0, vim.tbl_count(result))
+    end)
+  end)
+
   describe("create_all_labels", function()
     it("creates 5 kanban labels by default", function()
       local responses = {}

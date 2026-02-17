@@ -144,10 +144,18 @@ end
 ---@param width integer Available width for text
 ---@param worktree_map table<integer, table>|nil Map of issue number → worktree info
 ---@param claude_sessions table<integer, table>|nil Map of issue number → session info
+---@param sub_issue_counts table<integer, {total: integer, completed: integer}>|nil
 ---@return string
-function M.render_card(issue, width, worktree_map, claude_sessions)
+function M.render_card(issue, width, worktree_map, claude_sessions, sub_issue_counts)
   local title = M.strip_commit_prefix(issue.title or "")
   local prefix = " #" .. issue.number .. " "
+
+  -- Sub-issue count badge (after title, before worktree/session badges)
+  local sub_badge = ""
+  local sub_info = (sub_issue_counts and sub_issue_counts[issue.number]) or issue.sub_issue_counts
+  if sub_info and sub_info.total and sub_info.total > 0 then
+    sub_badge = " (" .. sub_info.total .. ")"
+  end
 
   -- Check for worktree badge (active worktrees use highlight color instead of badge)
   local badge = ""
@@ -175,14 +183,14 @@ function M.render_card(issue, width, worktree_map, claude_sessions)
     end
   end
 
-  local avail = width - #prefix - #badge
+  local avail = width - #prefix - #sub_badge - #badge
   if avail < 1 then
-    return prefix .. badge
+    return prefix .. sub_badge .. badge
   end
   if #title > avail then
     title = title:sub(1, avail - 1) .. ELLIPSIS
   end
-  return prefix .. title .. badge
+  return prefix .. title .. sub_badge .. badge
 end
 
 --- Render all cards for a column as a compact list (one line per card).
@@ -190,9 +198,10 @@ end
 ---@param width integer Available width for text
 ---@param worktree_map table<integer, table>|nil Map of issue number → worktree info
 ---@param claude_sessions table<integer, table>|nil Map of issue number → session info
+---@param sub_issue_counts table<integer, {total: integer, completed: integer}>|nil
 ---@return string[] lines
 ---@return table[] card_ranges Array of { start_line: integer, end_line: integer } (1-indexed)
-function M.render_column(issues, width, worktree_map, claude_sessions)
+function M.render_column(issues, width, worktree_map, claude_sessions, sub_issue_counts)
   if #issues == 0 then
     return { "  (no issues)" }, {}
   end
@@ -200,7 +209,7 @@ function M.render_column(issues, width, worktree_map, claude_sessions)
   local lines = {}
   local card_ranges = {}
   for i, issue in ipairs(issues) do
-    table.insert(lines, M.render_card(issue, width, worktree_map, claude_sessions))
+    table.insert(lines, M.render_card(issue, width, worktree_map, claude_sessions, sub_issue_counts))
     table.insert(card_ranges, { start_line = i, end_line = i })
   end
   return lines, card_ranges
@@ -213,8 +222,9 @@ end
 ---@param height integer Number of lines in preview pane
 ---@param worktree_map table<integer, table>|nil Map of issue number → worktree info
 ---@param claude_sessions table<integer, table>|nil Map of issue number → session info
+---@param sub_issue_counts table<integer, {total: integer, completed: integer}>|nil
 ---@return string[]
-function M.render_preview(issue, width, height, worktree_map, claude_sessions)
+function M.render_preview(issue, width, height, worktree_map, claude_sessions, sub_issue_counts)
   if not issue then
     local lines = {}
     for _ = 1, height do
@@ -284,6 +294,13 @@ function M.render_preview(issue, width, height, worktree_map, claude_sessions)
     end
     table.insert(lines, "")
     table.insert(lines, table.concat(parts, " \xc2\xb7 "))
+  end
+
+  -- Sub-issue progress
+  local sub_info = (sub_issue_counts and sub_issue_counts[issue.number]) or issue.sub_issue_counts
+  if sub_info and sub_info.total and sub_info.total > 0 and #lines < height - 1 then
+    table.insert(lines, "")
+    table.insert(lines, string.format("%d/%d sub-issues", sub_info.completed, sub_info.total))
   end
 
   -- Claude session status

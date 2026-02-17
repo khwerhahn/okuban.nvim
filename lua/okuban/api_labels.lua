@@ -252,6 +252,92 @@ function M.expand_column(col_index, callback)
 end
 
 -- ---------------------------------------------------------------------------
+-- Sub-issue counts
+-- ---------------------------------------------------------------------------
+
+--- Batch-fetch sub-issue counts via GraphQL aliases.
+---@param issue_numbers integer[]
+---@param callback fun(counts: table<integer, {total: integer, completed: integer}>)
+function M.fetch_sub_issue_counts(issue_numbers, callback)
+  if not issue_numbers or #issue_numbers == 0 then
+    callback({})
+    return
+  end
+
+  local api = require("okuban.api")
+  api.detect_repo_info(function(owner, name)
+    if not owner or not name then
+      callback({})
+      return
+    end
+
+    -- Build batched alias query (chunks of 25 to avoid oversized queries)
+    local all_counts = {}
+    local chunks = {}
+    for i = 1, #issue_numbers, 25 do
+      local chunk = {}
+      for j = i, math.min(i + 24, #issue_numbers) do
+        table.insert(chunk, issue_numbers[j])
+      end
+      table.insert(chunks, chunk)
+    end
+
+    local pending = #chunks
+    if pending == 0 then
+      callback({})
+      return
+    end
+
+    for _, chunk in ipairs(chunks) do
+      local aliases = {}
+      for _, num in ipairs(chunk) do
+        table.insert(
+          aliases,
+          string.format("i%d: issue(number: %d) { subIssuesSummary { total completed } }", num, num)
+        )
+      end
+
+      local query =
+        string.format('{ repository(owner: "%s", name: "%s") { %s } }', owner, name, table.concat(aliases, " "))
+
+      local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
+        "api",
+        "graphql",
+        "-H",
+        "GraphQL-Features: sub_issues",
+        "-f",
+        "query=" .. query,
+      })
+
+      vim.system(cmd, { text = true }, function(result)
+        vim.schedule(function()
+          if result.code == 0 and result.stdout then
+            local ok, data = pcall(vim.json.decode, result.stdout)
+            if ok and data and data.data and data.data.repository then
+              local repo = data.data.repository
+              for _, num in ipairs(chunk) do
+                local key = "i" .. num
+                if repo[key] and repo[key].subIssuesSummary then
+                  local s = repo[key].subIssuesSummary
+                  if s.total and s.total > 0 then
+                    all_counts[num] = { total = s.total, completed = s.completed or 0 }
+                  end
+                end
+              end
+            end
+          end
+
+          pending = pending - 1
+          if pending == 0 then
+            callback(all_counts)
+          end
+        end)
+      end)
+    end
+  end)
+end
+
+-- ---------------------------------------------------------------------------
 -- Label management
 -- ---------------------------------------------------------------------------
 
