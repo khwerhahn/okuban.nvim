@@ -120,7 +120,7 @@ function M._float_select(items, opts, on_choice)
     border = "rounded",
     title = " " .. prompt .. " ",
     title_pos = "center",
-    footer = " j/k Navigate  CR Select  Esc Cancel ",
+    footer = " j/k Navigate  Enter Select  Esc Cancel",
     footer_pos = "center",
     zindex = 70,
   })
@@ -207,7 +207,7 @@ function M._float_input(opts, on_confirm)
     border = "rounded",
     title = " " .. prompt .. " ",
     title_pos = "center",
-    footer = " CR Confirm  Esc Cancel ",
+    footer = " Enter Confirm  Esc Cancel",
     footer_pos = "center",
     zindex = 70,
   })
@@ -472,7 +472,7 @@ function M._open_body_buffer(title, body_text, extra_labels, column, board)
     border = "rounded",
     title = " New: " .. title_display .. " ",
     title_pos = "center",
-    footer = " <C-CR> Submit  <Esc> Cancel ",
+    footer = " Ctrl+Enter Submit  Esc Cancel",
     footer_pos = "center",
     zindex = 70,
   })
