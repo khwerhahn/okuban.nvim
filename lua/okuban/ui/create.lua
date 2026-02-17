@@ -531,18 +531,52 @@ function M._submit(title, board, column, extra_labels)
   end
 
   local stop = utils.spinner_start("Creating issue...")
-  api.create_issue(title, body, labels, function(ok, number, err)
-    if ok and number then
+  api.create_issue(title, body, labels, function(ok, number, err, url)
+    if not ok then
+      stop("Failed: " .. (err or "unknown error"))
+      return
+    end
+
+    local function refresh_board()
       utils.spinner_update("Refreshing board...")
       api.fetch_all_columns(function(data)
-        stop("Created #" .. number)
+        stop("Created #" .. (number or "?"))
         if data and board:is_open() then
           board:refresh(data)
         end
       end)
-    else
-      stop("Failed: " .. (err or "unknown error"))
     end
+
+    -- In project mode: add issue to project and set status column
+    if config.get().source == "project" and url and column and column.option_id then
+      local api_project = require("okuban.api_project")
+      local project_id = api_project.get_cached_project_id()
+      local status_field = api_project.get_cached_status_field()
+      local cfg = config.get()
+      local proj_number = cfg.project.number
+      local proj_owner = cfg.project.owner
+
+      if project_id and status_field and proj_number and proj_owner then
+        utils.spinner_update("Adding to project...")
+        api_project.add_item(url, proj_number, proj_owner, function(item_id, add_err)
+          if not item_id then
+            stop("Created #" .. (number or "?") .. " but failed to add to project: " .. (add_err or ""))
+            return
+          end
+          utils.spinner_update("Setting status...")
+          api_project.move_item(item_id, project_id, status_field.id, column.option_id, function(move_ok, move_err)
+            if not move_ok then
+              stop("Created #" .. (number or "?") .. " but failed to set status: " .. (move_err or ""))
+              return
+            end
+            refresh_board()
+          end)
+        end)
+        return
+      end
+    end
+
+    refresh_board()
   end)
 end
 
@@ -590,11 +624,22 @@ function M.open(board)
   M._fetch_templates(function(templates)
     -- Step 2: Template picker (skip if no templates)
     local function with_template(template_body, template_labels)
-      -- Step 3: Column picker
+      -- Step 3: Column picker (use project status options or label config)
       local cfg = config.get()
       local col_choices = {}
-      for _, col in ipairs(cfg.columns) do
-        table.insert(col_choices, { label = col.label, name = col.name })
+      if cfg.source == "project" then
+        local api_project = require("okuban.api_project")
+        local status_field = api_project.get_cached_status_field()
+        if status_field and status_field.options then
+          for _, opt in ipairs(status_field.options) do
+            table.insert(col_choices, { label = opt.id, name = opt.name, option_id = opt.id })
+          end
+        end
+      end
+      if #col_choices == 0 then
+        for _, col in ipairs(cfg.columns) do
+          table.insert(col_choices, { label = col.label, name = col.name })
+        end
       end
 
       M._float_select(col_choices, {

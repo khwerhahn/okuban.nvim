@@ -339,7 +339,7 @@ end
 ---@param title string
 ---@param body string
 ---@param labels string[]
----@param callback fun(ok: boolean, number: integer|nil, err: string|nil)
+---@param callback fun(ok: boolean, number: integer|nil, err: string|nil, url: string|nil)
 function M.create_issue(title, body, labels, callback)
   local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
     "issue",
@@ -356,14 +356,15 @@ function M.create_issue(title, body, labels, callback)
     vim.schedule(function()
       if result.code == 0 and result.stdout then
         -- gh issue create prints the URL: https://github.com/owner/repo/issues/42
-        local number = result.stdout:match("/issues/(%d+)")
+        local url = vim.trim(result.stdout)
+        local number = url:match("/issues/(%d+)")
         if number then
-          callback(true, tonumber(number), nil)
+          callback(true, tonumber(number), nil, url)
           return
         end
-        callback(true, nil, nil)
+        callback(true, nil, nil, url)
       else
-        callback(false, nil, result.stderr or "Failed to create issue")
+        callback(false, nil, result.stderr or "Failed to create issue", nil)
       end
     end)
   end)
