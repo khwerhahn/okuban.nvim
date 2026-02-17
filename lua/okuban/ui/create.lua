@@ -537,17 +537,39 @@ function M._submit(title, board, column, extra_labels)
       return
     end
 
-    local function refresh_board()
-      utils.spinner_update("Refreshing board...")
+    -- Optimistic update: inject the new issue into board data immediately
+    if number and board:is_open() and board.data and board.data.columns then
+      local optimistic_issue = {
+        number = number,
+        title = title,
+        body = body,
+        assignees = {},
+        labels = labels and vim.tbl_map(function(l)
+          return { name = l }
+        end, labels) or {},
+        state = "OPEN",
+      }
+      -- Find the target column and prepend the issue
+      for _, col in ipairs(board.data.columns) do
+        if col.label == column.label then
+          table.insert(col.issues, 1, optimistic_issue)
+          break
+        end
+      end
+      board:refresh(board.data)
+      stop("Created #" .. number)
+    end
+
+    -- Background sync: fetch real data to replace the optimistic entry
+    local function background_sync()
       api.fetch_all_columns(function(data)
-        stop("Created #" .. (number or "?"))
         if data and board:is_open() then
           board:refresh(data)
         end
       end)
     end
 
-    -- In project mode: add issue to project and set status column
+    -- In project mode: add issue to project and set status column, then sync
     if config.get().source == "project" and url and column and column.option_id then
       local api_project = require("okuban.api_project")
       local project_id = api_project.get_cached_project_id()
@@ -557,26 +579,24 @@ function M._submit(title, board, column, extra_labels)
       local proj_owner = cfg.project.owner
 
       if project_id and status_field and proj_number and proj_owner then
-        utils.spinner_update("Adding to project...")
         api_project.add_item(url, proj_number, proj_owner, function(item_id, add_err)
           if not item_id then
-            stop("Created #" .. (number or "?") .. " but failed to add to project: " .. (add_err or ""))
+            utils.notify("Failed to add to project: " .. (add_err or ""), vim.log.levels.WARN)
+            background_sync()
             return
           end
-          utils.spinner_update("Setting status...")
           api_project.move_item(item_id, project_id, status_field.id, column.option_id, function(move_ok, move_err)
             if not move_ok then
-              stop("Created #" .. (number or "?") .. " but failed to set status: " .. (move_err or ""))
-              return
+              utils.notify("Failed to set status: " .. (move_err or ""), vim.log.levels.WARN)
             end
-            refresh_board()
+            background_sync()
           end)
         end)
         return
       end
     end
 
-    refresh_board()
+    background_sync()
   end)
 end
 
