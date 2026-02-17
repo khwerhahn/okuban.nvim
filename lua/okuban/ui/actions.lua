@@ -62,17 +62,33 @@ function M._build_actions(issue, board)
           end
           local stop = utils.spinner_start("Closing #" .. issue.number .. "...")
           api.close_issue(issue.number, function(ok, err)
-            if ok then
-              utils.spinner_update("Refreshing board...")
+            if not ok then
+              stop("Failed to close #" .. issue.number .. ": " .. (err or ""))
+              return
+            end
+
+            -- Optimistic update: remove the issue from board data immediately
+            if board:is_open() and board.data and board.data.columns then
+              for _, col in ipairs(board.data.columns) do
+                for idx, iss in ipairs(col.issues) do
+                  if iss.number == issue.number then
+                    table.remove(col.issues, idx)
+                    break
+                  end
+                end
+              end
+              board:refresh(board.data)
+              stop("Closed #" .. issue.number)
+            end
+
+            -- Delayed background sync (GitHub index lag)
+            vim.defer_fn(function()
               api.fetch_all_columns(function(data)
-                stop("Closed #" .. issue.number)
-                if data then
+                if data and board:is_open() then
                   board:refresh(data)
                 end
               end)
-            else
-              stop("Failed to close #" .. issue.number .. ": " .. (err or ""))
-            end
+            end, 5000)
           end)
         end)
       end,
