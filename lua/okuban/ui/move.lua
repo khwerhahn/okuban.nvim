@@ -1,4 +1,5 @@
 local api = require("okuban.api")
+local picker = require("okuban.ui.picker")
 local utils = require("okuban.utils")
 
 local M = {}
@@ -37,30 +38,15 @@ function M.prompt_move(board)
     return
   end
 
-  -- Build display names
-  local names = {}
-  for _, col in ipairs(targets) do
-    table.insert(names, col.name)
-  end
-
-  vim.ui.select(names, { prompt = "Move #" .. issue.number .. " to:" }, function(choice)
-    if not choice then
-      return
-    end
-
-    -- Find the selected target column
-    local target = nil
-    for _, col in ipairs(targets) do
-      if col.name == choice then
-        target = col
-        break
-      end
-    end
-
+  picker.select(targets, {
+    prompt = "Move #" .. issue.number .. " to",
+    format_item = function(item)
+      return item.name
+    end,
+  }, function(target)
     if not target then
       return
     end
-
     M.execute_move(issue.number, current_label, target.label, target.name, board)
   end)
 end

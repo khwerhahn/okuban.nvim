@@ -334,26 +334,18 @@ function M._pick_project(callback)
 
       stop()
 
-      -- Build display list
-      local items = {}
-      for _, p in ipairs(projects) do
-        table.insert(items, string.format("#%d: %s", p.number, p.title))
-      end
-
-      vim.ui.select(items, { prompt = "Select a GitHub Project:" }, function(choice)
-        if not choice then
+      local picker = require("okuban.ui.picker")
+      picker.select(projects, {
+        prompt = "Select a GitHub Project",
+        format_item = function(p)
+          return string.format("#%d: %s", p.number, p.title)
+        end,
+      }, function(project)
+        if not project then
           callback(nil)
           return
         end
-
-        -- Find the selected project
-        for i, item in ipairs(items) do
-          if item == choice then
-            callback(projects[i].number)
-            return
-          end
-        end
-        callback(nil)
+        callback(project.number)
       end)
     end)
   end)

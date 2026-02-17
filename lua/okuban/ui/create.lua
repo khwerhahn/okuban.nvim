@@ -1,5 +1,6 @@
 local api = require("okuban.api")
 local config = require("okuban.config")
+local picker = require("okuban.ui.picker")
 local utils = require("okuban.utils")
 
 local M = {}
@@ -8,254 +9,13 @@ local create_win = nil
 local create_buf = nil
 local template_cache = nil -- nil=not fetched, false=none, table=list
 
--- ---------------------------------------------------------------------------
--- Backdrop overlay (dims everything behind the picker / body editor)
--- ---------------------------------------------------------------------------
-
-local backdrop_win = nil
-local backdrop_buf = nil
-
---- Show a full-screen semi-transparent backdrop behind modals.
-local function show_backdrop()
-  if backdrop_win and vim.api.nvim_win_is_valid(backdrop_win) then
-    return -- already visible
-  end
-  backdrop_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[backdrop_buf].buftype = "nofile"
-  vim.bo[backdrop_buf].bufhidden = "wipe"
-  backdrop_win = vim.api.nvim_open_win(backdrop_buf, false, {
-    relative = "editor",
-    row = 0,
-    col = 0,
-    width = vim.o.columns,
-    height = vim.o.lines,
-    style = "minimal",
-    focusable = false,
-    zindex = 65, -- between board (50) and picker/editor (70)
-  })
-  vim.wo[backdrop_win].winhighlight = "Normal:OkubanBackdrop"
-end
-
---- Close the backdrop overlay.
-local function close_backdrop()
-  if backdrop_win and vim.api.nvim_win_is_valid(backdrop_win) then
-    vim.api.nvim_win_close(backdrop_win, true)
-  end
-  backdrop_win = nil
-  backdrop_buf = nil
-end
-
--- ---------------------------------------------------------------------------
--- Floating picker helpers (centered on screen, replaces vim.ui.select/input)
--- ---------------------------------------------------------------------------
-
-local picker_win = nil
-local picker_buf = nil
-
---- Close the floating picker if open.
-local function close_picker()
-  if picker_win and vim.api.nvim_win_is_valid(picker_win) then
-    vim.api.nvim_win_close(picker_win, true)
-  end
-  picker_win = nil
-  picker_buf = nil
-end
-
---- Open a centered floating list picker.
---- j/k to navigate, CR to select, Esc/q to cancel.
----@param items table[] Items to choose from
----@param opts { prompt: string, format_item: fun(item: table): string }
----@param on_choice fun(item: table|nil)
-function M._float_select(items, opts, on_choice)
-  close_picker()
-
-  if not items or #items == 0 then
-    on_choice(nil)
-    return
-  end
-
-  show_backdrop()
-
-  local format = opts.format_item or tostring
-  local lines = {}
-  for _, item in ipairs(items) do
-    table.insert(lines, "    " .. format(item))
-  end
-
-  local prompt = opts.prompt or "Select:"
-  local footer_len = 42 -- " j/k Navigate  Enter Select  Esc Cancel"
-  local width = math.max(#prompt + 4, footer_len)
-  for _, line in ipairs(lines) do
-    if #line + 4 > width then
-      width = #line + 4
-    end
-  end
-  if width > 80 then
-    width = 80
-  end
-  if width < 40 then
-    width = 40
-  end
-
-  picker_buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(picker_buf, 0, -1, false, lines)
-  vim.bo[picker_buf].buftype = "nofile"
-  vim.bo[picker_buf].bufhidden = "wipe"
-  vim.bo[picker_buf].modifiable = false
-  vim.bo[picker_buf].filetype = "okuban"
-
-  local sw = vim.o.columns
-  local sh = vim.o.lines
-  local height = #lines
-  if height > 20 then
-    height = 20
-  end
-
-  picker_win = vim.api.nvim_open_win(picker_buf, true, {
-    relative = "editor",
-    row = math.floor((sh - height) / 2),
-    col = math.floor((sw - width) / 2),
-    width = width,
-    height = height,
-    style = "minimal",
-    border = "rounded",
-    title = " " .. prompt .. " ",
-    title_pos = "center",
-    footer = " j/k Navigate  Enter Select  Esc Cancel",
-    footer_pos = "center",
-    zindex = 70,
-  })
-
-  vim.wo[picker_win].cursorline = true
-  vim.wo[picker_win].wrap = false
-  vim.wo[picker_win].number = false
-  vim.wo[picker_win].relativenumber = false
-  vim.wo[picker_win].signcolumn = "no"
-
-  vim.api.nvim_win_set_cursor(picker_win, { 1, 0 })
-
-  local called = false
-  local function select_current()
-    if called then
-      return
-    end
-    called = true
-    local row = vim.api.nvim_win_get_cursor(picker_win)[1]
-    close_picker()
-    on_choice(items[row])
-  end
-
-  local function cancel()
-    if called then
-      return
-    end
-    called = true
-    close_picker()
-    on_choice(nil)
-  end
-
-  local buf_opts = { buffer = picker_buf, nowait = true, silent = true }
-  vim.keymap.set("n", "j", function()
-    local row = vim.api.nvim_win_get_cursor(picker_win)[1]
-    if row < #items then
-      vim.api.nvim_win_set_cursor(picker_win, { row + 1, 0 })
-    end
-  end, buf_opts)
-  vim.keymap.set("n", "k", function()
-    local row = vim.api.nvim_win_get_cursor(picker_win)[1]
-    if row > 1 then
-      vim.api.nvim_win_set_cursor(picker_win, { row - 1, 0 })
-    end
-  end, buf_opts)
-  vim.keymap.set("n", "<CR>", select_current, buf_opts)
-  vim.keymap.set("n", "<Esc>", cancel, buf_opts)
-  vim.keymap.set("n", "q", cancel, buf_opts)
-end
-
---- Open a centered floating input prompt.
---- Type text, CR to confirm, Esc to cancel.
----@param opts { prompt: string }
----@param on_confirm fun(text: string|nil)
-function M._float_input(opts, on_confirm)
-  close_picker()
-  show_backdrop()
-
-  local prompt = opts.prompt or "Input:"
-  local width = math.max(60, #prompt + 10)
-  if width > 80 then
-    width = 80
-  end
-
-  picker_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[picker_buf].buftype = "nofile"
-  vim.bo[picker_buf].bufhidden = "wipe"
-  vim.bo[picker_buf].swapfile = false
-  vim.bo[picker_buf].filetype = "okuban"
-
-  vim.api.nvim_buf_set_lines(picker_buf, 0, -1, false, { "" })
-
-  local sw = vim.o.columns
-  local sh = vim.o.lines
-
-  picker_win = vim.api.nvim_open_win(picker_buf, true, {
-    relative = "editor",
-    row = math.floor(sh / 2),
-    col = math.floor((sw - width) / 2),
-    width = width,
-    height = 1,
-    style = "minimal",
-    border = "rounded",
-    title = " " .. prompt .. " ",
-    title_pos = "center",
-    footer = " Enter Confirm  Esc Cancel",
-    footer_pos = "center",
-    zindex = 70,
-  })
-
-  vim.wo[picker_win].wrap = false
-  vim.wo[picker_win].number = false
-  vim.wo[picker_win].relativenumber = false
-  vim.wo[picker_win].signcolumn = "no"
-
-  vim.cmd("startinsert")
-
-  local called = false
-  local function confirm()
-    if called then
-      return
-    end
-    called = true
-    local line = vim.api.nvim_buf_get_lines(picker_buf, 0, 1, false)[1] or ""
-    close_picker()
-    on_confirm(line)
-  end
-
-  local function cancel()
-    if called then
-      return
-    end
-    called = true
-    close_picker()
-    on_confirm(nil)
-  end
-
-  local buf_opts = { buffer = picker_buf, nowait = true, silent = true }
-  vim.keymap.set("i", "<CR>", function()
-    vim.cmd("stopinsert")
-    confirm()
-  end, buf_opts)
-  vim.keymap.set("n", "<CR>", confirm, buf_opts)
-  vim.keymap.set("n", "<Esc>", cancel, buf_opts)
-end
-
--- ---------------------------------------------------------------------------
--- Public API
--- ---------------------------------------------------------------------------
+-- Expose picker methods for test backward compatibility
+M._float_select = picker.select
+M._float_input = picker.input
 
 --- Close the create window and all overlays.
 function M.close()
-  close_picker()
-  close_backdrop()
+  picker.close()
   if create_win and vim.api.nvim_win_is_valid(create_win) then
     vim.api.nvim_win_close(create_win, true)
   end
@@ -425,13 +185,13 @@ end
 ---@param board table Board instance
 function M._open_body_buffer(title, body_text, extra_labels, column, board)
   -- Close any existing create window (keeps backdrop)
-  close_picker()
+  picker.close_picker()
   if create_win and vim.api.nvim_win_is_valid(create_win) then
     vim.api.nvim_win_close(create_win, true)
   end
   create_win = nil
   create_buf = nil
-  show_backdrop()
+  picker.show_backdrop()
 
   local sw = vim.o.columns
   local sh = vim.o.lines
@@ -614,10 +374,27 @@ function M._cancel(board)
     end
 
     if has_content then
-      local confirm = vim.fn.confirm("Discard draft issue?", "&Yes\n&No", 2)
-      if confirm ~= 1 then
-        return
+      -- Close the body editor first so confirm dialog shows on top
+      if create_win and vim.api.nvim_win_is_valid(create_win) then
+        vim.api.nvim_win_close(create_win, true)
       end
+      create_win = nil
+      create_buf = nil
+
+      picker.confirm("Discard draft issue?", function(confirmed)
+        if not confirmed then
+          return
+        end
+        picker.close()
+        -- Restore focus to board
+        if board and board.windows and board.navigation then
+          local win = board.windows[board.navigation.column_index]
+          if win and vim.api.nvim_win_is_valid(win) then
+            vim.api.nvim_set_current_win(win)
+          end
+        end
+      end)
+      return
     end
   end
 
@@ -669,7 +446,7 @@ function M.open(board)
         end,
       }, function(column)
         if not column then
-          close_backdrop()
+          picker.close_backdrop()
           return
         end
 
@@ -679,7 +456,7 @@ function M.open(board)
             if title ~= nil then -- nil = cancelled, "" = empty
               utils.notify("Title cannot be empty", vim.log.levels.WARN)
             end
-            close_backdrop()
+            picker.close_backdrop()
             return
           end
 
@@ -704,7 +481,7 @@ function M.open(board)
         end,
       }, function(choice)
         if not choice then
-          close_backdrop()
+          picker.close_backdrop()
           return
         end
         if not choice._template then

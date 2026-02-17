@@ -1,5 +1,6 @@
 local api = require("okuban.api")
 local config = require("okuban.config")
+local picker = require("okuban.ui.picker")
 local utils = require("okuban.utils")
 
 local M = {}
@@ -55,9 +56,8 @@ function M._build_actions(issue, board)
       label = "Close issue",
       callback = function()
         M.close()
-        vim.schedule(function()
-          local confirm = vim.fn.confirm("Close issue #" .. issue.number .. "?", "&Yes\n&No", 2)
-          if confirm ~= 1 then
+        picker.confirm("Close issue #" .. issue.number .. "?", function(confirmed)
+          if not confirmed then
             return
           end
           local stop = utils.spinner_start("Closing #" .. issue.number .. "...")
