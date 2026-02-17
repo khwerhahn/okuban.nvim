@@ -320,13 +320,19 @@ function M._submit(title, board, column, extra_labels)
       stop("Created #" .. number)
     end
 
-    -- Background sync: fetch real data to replace the optimistic entry
+    -- Background sync: fetch real data to replace the optimistic entry.
+    -- Delayed to give GitHub's search index time to include the new issue.
+    -- Without delay, gh issue list returns stale results and the optimistic
+    -- entry vanishes until the next poll cycle.
     local function background_sync()
-      api.fetch_all_columns(function(data)
-        if data and board:is_open() then
-          board:refresh(data)
-        end
-      end)
+      local delay = 5000 -- 5 seconds
+      vim.defer_fn(function()
+        api.fetch_all_columns(function(data)
+          if data and board:is_open() then
+            board:refresh(data)
+          end
+        end)
+      end, delay)
     end
 
     -- In project mode: add issue to project and set status column, then sync
