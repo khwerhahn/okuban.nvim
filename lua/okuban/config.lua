@@ -15,6 +15,7 @@ local M = {}
 ---@field move_card string
 ---@field open_actions string
 ---@field goto_current string
+---@field new_issue string
 ---@field close string
 ---@field refresh string
 ---@field help string
@@ -94,6 +95,7 @@ local defaults = {
     move_card = "m",
     open_actions = "<CR>",
     goto_current = "g",
+    new_issue = "n",
     close = "q",
     refresh = "r",
     help = "?",

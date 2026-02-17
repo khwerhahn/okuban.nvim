@@ -335,6 +335,41 @@ function M.assign_issue(number, callback)
   end)
 end
 
+--- Create a new GitHub issue.
+---@param title string
+---@param body string
+---@param labels string[]
+---@param callback fun(ok: boolean, number: integer|nil, err: string|nil, url: string|nil)
+function M.create_issue(title, body, labels, callback)
+  local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
+    "issue",
+    "create",
+    "--title",
+    title,
+    "--body",
+    body,
+  })
+  for _, label in ipairs(labels or {}) do
+    vim.list_extend(cmd, { "--label", label })
+  end
+  vim.system(cmd, { text = true }, function(result)
+    vim.schedule(function()
+      if result.code == 0 and result.stdout then
+        -- gh issue create prints the URL: https://github.com/owner/repo/issues/42
+        local url = vim.trim(result.stdout)
+        local number = url:match("/issues/(%d+)")
+        if number then
+          callback(true, tonumber(number), nil, url)
+          return
+        end
+        callback(true, nil, nil, url)
+      else
+        callback(false, nil, result.stderr or "Failed to create issue", nil)
+      end
+    end)
+  end)
+end
+
 --- Open an issue in the system browser.
 ---@param number integer Issue number
 function M.view_issue_in_browser(number)

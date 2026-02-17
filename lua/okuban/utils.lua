@@ -74,7 +74,9 @@ function M.spinner_start(msg)
     vim.schedule_wrap(function()
       if not vim.api.nvim_buf_is_valid(buf) then
         timer:stop()
-        timer:close()
+        if not timer:is_closing() then
+          timer:close()
+        end
         return
       end
       frame_idx = (frame_idx % #spinner_frames) + 1

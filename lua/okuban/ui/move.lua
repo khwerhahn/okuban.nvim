@@ -1,4 +1,5 @@
 local api = require("okuban.api")
+local picker = require("okuban.ui.picker")
 local utils = require("okuban.utils")
 
 local M = {}
@@ -37,30 +38,15 @@ function M.prompt_move(board)
     return
   end
 
-  -- Build display names
-  local names = {}
-  for _, col in ipairs(targets) do
-    table.insert(names, col.name)
-  end
-
-  vim.ui.select(names, { prompt = "Move #" .. issue.number .. " to:" }, function(choice)
-    if not choice then
-      return
-    end
-
-    -- Find the selected target column
-    local target = nil
-    for _, col in ipairs(targets) do
-      if col.name == choice then
-        target = col
-        break
-      end
-    end
-
+  picker.select(targets, {
+    prompt = "Move #" .. issue.number .. " to",
+    format_item = function(item)
+      return item.name
+    end,
+  }, function(target)
     if not target then
       return
     end
-
     M.execute_move(issue.number, current_label, target.label, target.name, board)
   end)
 end
@@ -80,15 +66,42 @@ function M.execute_move(number, from_id, to_id, to_name, board)
       return
     end
 
-    utils.spinner_update("Refreshing board...")
-
-    -- Refresh the board
-    api.fetch_all_columns(function(data)
-      stop("Moved #" .. number .. " to " .. to_name)
-      if data then
-        board:refresh(data)
+    -- Optimistic update: move the issue between columns in board data
+    if board:is_open() and board.data and board.data.columns then
+      local moved_issue = nil
+      -- Remove from source column
+      for _, col in ipairs(board.data.columns) do
+        if col.label == from_id then
+          for idx, iss in ipairs(col.issues) do
+            if iss.number == number then
+              moved_issue = table.remove(col.issues, idx)
+              break
+            end
+          end
+          break
+        end
       end
-    end)
+      -- Insert into target column
+      if moved_issue then
+        for _, col in ipairs(board.data.columns) do
+          if col.label == to_id then
+            table.insert(col.issues, 1, moved_issue)
+            break
+          end
+        end
+      end
+      board:refresh(board.data)
+      stop("Moved #" .. number .. " to " .. to_name)
+    end
+
+    -- Delayed background sync (GitHub index lag)
+    vim.defer_fn(function()
+      api.fetch_all_columns(function(data)
+        if data and board:is_open() then
+          board:refresh(data)
+        end
+      end)
+    end, 5000)
   end)
 end
 

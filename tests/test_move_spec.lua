@@ -168,12 +168,14 @@ describe("okuban.ui.move", function()
   end)
 
   describe("prompt_move", function()
+    local picker = require("okuban.ui.picker")
+
     it("builds target list excluding current column", function()
-      -- We test the internal logic by checking that vim.ui.select receives
+      -- We test the internal logic by checking that picker.select receives
       -- the right number of options
       local select_items = nil
-      local orig_select = vim.ui.select
-      vim.ui.select = function(items)
+      local orig_select = picker.select
+      picker.select = function(items)
         select_items = items
       end
 
@@ -192,21 +194,21 @@ describe("okuban.ui.move", function()
 
       move_mod.prompt_move(mock_board)
 
-      vim.ui.select = orig_select
+      picker.select = orig_select
 
       -- Should have 4 targets (5 columns minus current)
       assert.is_not_nil(select_items)
       assert.equals(4, #select_items)
       -- "Todo" should not be in the list
-      for _, name in ipairs(select_items) do
-        assert.is_not.equals("Todo", name)
+      for _, item in ipairs(select_items) do
+        assert.is_not.equals("Todo", item.name)
       end
     end)
 
     it("uses board.data.columns when available", function()
       local select_items = nil
-      local orig_select = vim.ui.select
-      vim.ui.select = function(items)
+      local orig_select = picker.select
+      picker.select = function(items)
         select_items = items
       end
 
@@ -232,19 +234,19 @@ describe("okuban.ui.move", function()
 
       move_mod.prompt_move(mock_board)
 
-      vim.ui.select = orig_select
+      picker.select = orig_select
 
       -- Should have 2 targets (3 project columns minus current)
       assert.is_not_nil(select_items)
       assert.equals(2, #select_items)
-      assert.equals("Beta", select_items[1])
-      assert.equals("Gamma", select_items[2])
+      assert.equals("Beta", select_items[1].name)
+      assert.equals("Gamma", select_items[2].name)
     end)
 
     it("does nothing when no issue is selected", function()
       local select_called = false
-      local orig_select = vim.ui.select
-      vim.ui.select = function()
+      local orig_select = picker.select
+      picker.select = function()
         select_called = true
       end
 
@@ -259,7 +261,7 @@ describe("okuban.ui.move", function()
 
       move_mod.prompt_move({ navigation = nav })
 
-      vim.ui.select = orig_select
+      picker.select = orig_select
       assert.is_false(select_called)
     end)
   end)

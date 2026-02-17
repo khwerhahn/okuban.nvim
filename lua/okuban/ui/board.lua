@@ -16,6 +16,7 @@ local function define_highlights()
   vim.api.nvim_set_hl(0, "OkubanCardFocused", { default = true, link = "CursorLine" })
   vim.api.nvim_set_hl(0, "OkubanColumnHeader", { default = true, link = "Title" })
   vim.api.nvim_set_hl(0, "OkubanCardActive", { default = true, link = "WarningMsg" })
+  vim.api.nvim_set_hl(0, "OkubanBackdrop", { default = true, bg = "#000000", fg = "#000000", blend = 40 })
 end
 
 local ns_active = vim.api.nvim_create_namespace("okuban_worktree_active")
@@ -742,6 +743,7 @@ function Board:close()
 
   -- Close any open popup windows (action menu, help) and header
   require("okuban.ui.actions").close()
+  require("okuban.ui.create").close()
   require("okuban.ui.help").close()
   header.close()
 

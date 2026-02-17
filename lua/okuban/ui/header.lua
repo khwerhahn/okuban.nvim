@@ -40,7 +40,7 @@ function M._render(mode, issue)
     end
     return { prefix .. separator .. title }
   else
-    return { " [Enter] Actions  [m] Move  [g] Goto  [r] Refresh  [?] Help  [q] Close" }
+    return { " [Enter] Actions  [m] Move  [n] New  [g] Goto  [r] Refresh  [?] Help  [q] Close" }
   end
 end
 

@@ -368,6 +368,11 @@ function Navigation:setup_keymaps(buf)
     end, opts)
   end
 
+  vim.keymap.set("n", keymaps.new_issue, function()
+    local create = require("okuban.ui.create")
+    create.open(self.board)
+  end, opts)
+
   vim.keymap.set("n", keymaps.help, function()
     local help = require("okuban.ui.help")
     help.open()
