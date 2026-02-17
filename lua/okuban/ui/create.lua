@@ -77,11 +77,10 @@ function M._float_select(items, opts, on_choice)
   show_backdrop()
 
   local format = opts.format_item or tostring
-  local lines = { "" } -- top padding
+  local lines = {}
   for _, item in ipairs(items) do
     table.insert(lines, "    " .. format(item))
   end
-  table.insert(lines, "") -- bottom padding
 
   local prompt = opts.prompt or "Select:"
   local footer_len = 42 -- " j/k Navigate  Enter Select  Esc Cancel"
@@ -133,11 +132,7 @@ function M._float_select(items, opts, on_choice)
   vim.wo[picker_win].relativenumber = false
   vim.wo[picker_win].signcolumn = "no"
 
-  -- Place cursor on first item (row 2, after top padding)
-  vim.api.nvim_win_set_cursor(picker_win, { 2, 0 })
-
-  local first_row = 2 -- first item row (after top padding)
-  local last_row = #items + 1 -- last item row (before bottom padding)
+  vim.api.nvim_win_set_cursor(picker_win, { 1, 0 })
 
   local called = false
   local function select_current()
@@ -147,7 +142,7 @@ function M._float_select(items, opts, on_choice)
     called = true
     local row = vim.api.nvim_win_get_cursor(picker_win)[1]
     close_picker()
-    on_choice(items[row - 1]) -- offset by 1 for top padding
+    on_choice(items[row])
   end
 
   local function cancel()
@@ -162,13 +157,13 @@ function M._float_select(items, opts, on_choice)
   local buf_opts = { buffer = picker_buf, nowait = true, silent = true }
   vim.keymap.set("n", "j", function()
     local row = vim.api.nvim_win_get_cursor(picker_win)[1]
-    if row < last_row then
+    if row < #items then
       vim.api.nvim_win_set_cursor(picker_win, { row + 1, 0 })
     end
   end, buf_opts)
   vim.keymap.set("n", "k", function()
     local row = vim.api.nvim_win_get_cursor(picker_win)[1]
-    if row > first_row then
+    if row > 1 then
       vim.api.nvim_win_set_cursor(picker_win, { row - 1, 0 })
     end
   end, buf_opts)
