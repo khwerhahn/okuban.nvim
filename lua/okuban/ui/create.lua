@@ -472,7 +472,7 @@ function M._open_body_buffer(title, body_text, extra_labels, column, board)
     border = "rounded",
     title = " New: " .. title_display .. " ",
     title_pos = "center",
-    footer = " Ctrl+Enter Submit  Esc Cancel",
+    footer = " Ctrl+s Submit  Esc Cancel",
     footer_pos = "center",
     zindex = 70,
   })
@@ -485,13 +485,13 @@ function M._open_body_buffer(title, body_text, extra_labels, column, board)
   -- Start in insert mode at end
   vim.cmd("startinsert")
 
-  -- Submit keymap: Ctrl-Enter (normal + insert)
+  -- Submit keymap: Ctrl-s (normal + insert)
   local submit = function()
     M._submit(title, board, column, extra_labels)
   end
   local buf_opts = { buffer = create_buf, nowait = true, silent = true }
-  vim.keymap.set("n", "<C-CR>", submit, buf_opts)
-  vim.keymap.set("i", "<C-CR>", function()
+  vim.keymap.set("n", "<C-s>", submit, buf_opts)
+  vim.keymap.set("i", "<C-s>", function()
     vim.cmd("stopinsert")
     submit()
   end, buf_opts)
