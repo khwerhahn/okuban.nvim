@@ -130,6 +130,57 @@ if [ -n "$OPEN_DONE" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 7. Check for orphaned remote branches (issue is closed)
+# ---------------------------------------------------------------------------
+git fetch --prune 2>/dev/null
+
+REMOTE_BRANCHES=$(git branch -r 2>/dev/null | sed 's/^[[:space:]]*//' | grep -v 'origin/main$' | grep -v 'origin/HEAD' | grep -v 'release-please')
+
+if [ -n "$REMOTE_BRANCHES" ]; then
+  while IFS= read -r BRANCH; do
+    ISSUE_NUM=$(echo "$BRANCH" | grep -oE 'issue-([0-9]+)' | grep -oE '[0-9]+')
+    if [ -n "$ISSUE_NUM" ]; then
+      STATE=$(gh issue view "$ISSUE_NUM" --repo "$REPO" --json state --jq '.state' 2>/dev/null)
+      if [ "$STATE" = "CLOSED" ]; then
+        LOCAL_BRANCH="${BRANCH#origin/}"
+        WARNINGS="${WARNINGS}\n  - Remote branch ${BRANCH} is orphaned (issue #${ISSUE_NUM} is closed)"
+        ACTIONS="${ACTIONS}\n  - Delete: git push origin --delete ${LOCAL_BRANCH}"
+      fi
+    fi
+  done <<< "$REMOTE_BRANCHES"
+fi
+
+# ---------------------------------------------------------------------------
+# 8. Check for duplicate open PRs referencing the same issue
+# ---------------------------------------------------------------------------
+OPEN_PR_JSON=$(gh pr list --repo "$REPO" --state open --json number,title,body,headRefName 2>/dev/null)
+
+if [ -n "$OPEN_PR_JSON" ] && [ "$OPEN_PR_JSON" != "[]" ]; then
+  # Extract issue numbers from PR bodies and branch names, group by issue
+  ISSUE_PR_MAP=$(echo "$OPEN_PR_JSON" | jq -r '
+    [.[] | {
+      pr: .number,
+      title: .title,
+      issues: (
+        [(.body // "" | capture("(?:Fixes|Closes|Resolves)\\s*#(?<num>[0-9]+)"; "gi") | .num)] +
+        [(.headRefName // "" | capture("issue-(?<num>[0-9]+)"; "g") | .num)]
+      ) | unique
+    }] |
+    group_by(.issues[]) |
+    map(select(length > 1)) |
+    .[] |
+    "issue#\(.[0].issues[0])|\([ .[] | "#\(.pr) (\(.title))" ] | join(", "))"
+  ' 2>/dev/null)
+
+  if [ -n "$ISSUE_PR_MAP" ]; then
+    while IFS='|' read -r ISSUE_REF PR_LIST; do
+      WARNINGS="${WARNINGS}\n  - Multiple open PRs for ${ISSUE_REF}: ${PR_LIST}"
+      ACTIONS="${ACTIONS}\n  - Review and close duplicate PRs for ${ISSUE_REF}"
+    done <<< "$ISSUE_PR_MAP"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Output results
 # ---------------------------------------------------------------------------
 if [ -n "$WARNINGS" ]; then

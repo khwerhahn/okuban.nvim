@@ -51,8 +51,14 @@ If you find yourself on `main`, switch to a feature branch before making any cha
 - GitHub auto-closes the issue when the PR merges
 
 ### After Completing Work
-1. Move the kanban label: `gh issue edit <NUMBER> --remove-label "okuban:in-progress" --add-label "okuban:review"`
-2. Or use `/close-issue <NUMBER>` to automate closure
+1. After PR is merged, **always run `/close-issue <NUMBER>`** — this is the single cleanup command that:
+   - Moves the kanban label to `okuban:done`
+   - Closes the issue with a completion comment
+   - Closes any stale PRs linked to the issue
+   - Deletes remote and local feature branches
+   - Prunes stale git refs
+2. **Never skip `/close-issue`** — GitHub auto-close (via `Fixes #N`) only closes the issue, it does NOT move the kanban label or clean up branches/PRs
+3. For in-progress work not yet merged: `gh issue edit <NUMBER> --remove-label "okuban:in-progress" --add-label "okuban:review"`
 
 ### Why This Matters
 - Issues are the single source of truth for all project work
