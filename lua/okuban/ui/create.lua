@@ -77,23 +77,25 @@ function M._float_select(items, opts, on_choice)
   show_backdrop()
 
   local format = opts.format_item or tostring
-  local lines = {}
+  local lines = { "" } -- top padding
   for _, item in ipairs(items) do
-    table.insert(lines, "  " .. format(item))
+    table.insert(lines, "    " .. format(item))
   end
+  table.insert(lines, "") -- bottom padding
 
   local prompt = opts.prompt or "Select:"
-  local width = #prompt + 4
+  local footer_len = 42 -- " j/k Navigate  Enter Select  Esc Cancel"
+  local width = math.max(#prompt + 4, footer_len)
   for _, line in ipairs(lines) do
-    if #line + 2 > width then
-      width = #line + 2
+    if #line + 4 > width then
+      width = #line + 4
     end
   end
-  if width > 60 then
-    width = 60
+  if width > 80 then
+    width = 80
   end
-  if width < 20 then
-    width = 20
+  if width < 40 then
+    width = 40
   end
 
   picker_buf = vim.api.nvim_create_buf(false, true)
@@ -106,8 +108,8 @@ function M._float_select(items, opts, on_choice)
   local sw = vim.o.columns
   local sh = vim.o.lines
   local height = #lines
-  if height > 15 then
-    height = 15
+  if height > 20 then
+    height = 20
   end
 
   picker_win = vim.api.nvim_open_win(picker_buf, true, {
@@ -131,8 +133,11 @@ function M._float_select(items, opts, on_choice)
   vim.wo[picker_win].relativenumber = false
   vim.wo[picker_win].signcolumn = "no"
 
-  -- Place cursor on first item
-  vim.api.nvim_win_set_cursor(picker_win, { 1, 0 })
+  -- Place cursor on first item (row 2, after top padding)
+  vim.api.nvim_win_set_cursor(picker_win, { 2, 0 })
+
+  local first_row = 2 -- first item row (after top padding)
+  local last_row = #items + 1 -- last item row (before bottom padding)
 
   local called = false
   local function select_current()
@@ -142,7 +147,7 @@ function M._float_select(items, opts, on_choice)
     called = true
     local row = vim.api.nvim_win_get_cursor(picker_win)[1]
     close_picker()
-    on_choice(items[row])
+    on_choice(items[row - 1]) -- offset by 1 for top padding
   end
 
   local function cancel()
@@ -157,13 +162,13 @@ function M._float_select(items, opts, on_choice)
   local buf_opts = { buffer = picker_buf, nowait = true, silent = true }
   vim.keymap.set("n", "j", function()
     local row = vim.api.nvim_win_get_cursor(picker_win)[1]
-    if row < #items then
+    if row < last_row then
       vim.api.nvim_win_set_cursor(picker_win, { row + 1, 0 })
     end
   end, buf_opts)
   vim.keymap.set("n", "k", function()
     local row = vim.api.nvim_win_get_cursor(picker_win)[1]
-    if row > 1 then
+    if row > first_row then
       vim.api.nvim_win_set_cursor(picker_win, { row - 1, 0 })
     end
   end, buf_opts)
@@ -181,9 +186,9 @@ function M._float_input(opts, on_confirm)
   show_backdrop()
 
   local prompt = opts.prompt or "Input:"
-  local width = math.max(50, #prompt + 10)
-  if width > 70 then
-    width = 70
+  local width = math.max(60, #prompt + 10)
+  if width > 80 then
+    width = 80
   end
 
   picker_buf = vim.api.nvim_create_buf(false, true)
