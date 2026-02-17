@@ -742,6 +742,7 @@ function Board:close()
 
   -- Close any open popup windows (action menu, help) and header
   require("okuban.ui.actions").close()
+  require("okuban.ui.create").close()
   require("okuban.ui.help").close()
   header.close()
 

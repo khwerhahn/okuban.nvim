@@ -22,6 +22,7 @@ function M.open()
     "  " .. keymaps.card_up .. "      Previous card",
     "  " .. keymaps.card_down .. "      Next card",
     "  " .. keymaps.move_card .. "      Move card to column",
+    "  " .. keymaps.new_issue .. "      New issue",
     "  Enter  Action menu",
     "  " .. keymaps.goto_current .. "      Go to current issue",
     "  " .. keymaps.refresh .. "      Refresh board",
