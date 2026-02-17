@@ -287,6 +287,37 @@ describe("okuban.ui.card", function()
       assert.is_falsy(result:match("\xe2\x9c\x93"))
       assert.is_falsy(result:match("\xe2\x9c\x97"))
     end)
+
+    it("shows sub-issue count badge from counts map", function()
+      local counts = { [42] = { total = 3, completed = 1 } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, nil, nil, counts)
+      assert.truthy(result:match("%(3%)"))
+    end)
+
+    it("shows sub-issue count badge from issue.sub_issue_counts (project mode)", function()
+      local issue = { number = 42, title = "Test", sub_issue_counts = { total = 5, completed = 2 } }
+      local result = card_mod.render_card(issue, 40)
+      assert.truthy(result:match("%(5%)"))
+    end)
+
+    it("no sub-issue badge when count is 0", function()
+      local counts = { [42] = { total = 0, completed = 0 } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, nil, nil, counts)
+      assert.is_falsy(result:match("%(0%)"))
+    end)
+
+    it("no sub-issue badge when counts is nil", function()
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, nil, nil, nil)
+      assert.is_falsy(result:match("%(%d+%)"))
+    end)
+
+    it("truncates title correctly with sub-issue badge", function()
+      local counts = { [1] = { total = 3, completed = 1 } }
+      local result =
+        card_mod.render_card({ number = 1, title = "A very long title that will be truncated" }, 25, nil, nil, counts)
+      assert.truthy(result:match("%(3%)"))
+      assert.truthy(result:match("\xe2\x80\xa6")) -- ellipsis
+    end)
   end)
 
   describe("render_column", function()
@@ -328,6 +359,17 @@ describe("okuban.ui.card", function()
       local lines, _ = card_mod.render_column(issues, 30)
       assert.truthy(lines[1]:match("#10"))
       assert.truthy(lines[2]:match("#20"))
+    end)
+
+    it("passes sub_issue_counts through to cards", function()
+      local issues = {
+        { number = 10, title = "Alpha" },
+        { number = 20, title = "Beta" },
+      }
+      local counts = { [10] = { total = 3, completed = 1 } }
+      local lines, _ = card_mod.render_column(issues, 40, nil, nil, counts)
+      assert.truthy(lines[1]:match("%(3%)"))
+      assert.is_falsy(lines[2]:match("%(%d+%)"))
     end)
   end)
 
@@ -405,6 +447,45 @@ describe("okuban.ui.card", function()
       local issue = { number = 1, title = "Short", assignees = {}, labels = {} }
       local lines = card_mod.render_preview(issue, 80, 10)
       assert.equals(10, #lines)
+    end)
+
+    it("shows sub-issue progress from counts map", function()
+      local issue = { number = 42, title = "Test", assignees = {}, labels = {} }
+      local counts = { [42] = { total = 5, completed = 2 } }
+      local lines = card_mod.render_preview(issue, 80, 10, nil, nil, counts)
+      local found = false
+      for _, line in ipairs(lines) do
+        if line:match("2/5 sub%-issues") then
+          found = true
+        end
+      end
+      assert.is_true(found)
+    end)
+
+    it("shows sub-issue progress from issue.sub_issue_counts (project mode)", function()
+      local issue = {
+        number = 42,
+        title = "Test",
+        assignees = {},
+        labels = {},
+        sub_issue_counts = { total = 3, completed = 3 },
+      }
+      local lines = card_mod.render_preview(issue, 80, 10)
+      local found = false
+      for _, line in ipairs(lines) do
+        if line:match("3/3 sub%-issues") then
+          found = true
+        end
+      end
+      assert.is_true(found)
+    end)
+
+    it("no sub-issue line when counts are 0 or nil", function()
+      local issue = { number = 42, title = "Test", assignees = {}, labels = {} }
+      local lines = card_mod.render_preview(issue, 80, 10, nil, nil, nil)
+      for _, line in ipairs(lines) do
+        assert.is_falsy(line:match("sub%-issues"))
+      end
     end)
 
     it("respects show_tldr config", function()

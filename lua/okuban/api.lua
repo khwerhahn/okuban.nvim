@@ -126,6 +126,47 @@ function M._reset_preflight()
   preflight_passed = false
 end
 
+-- ---------------------------------------------------------------------------
+-- Repo info detection (cached)
+-- ---------------------------------------------------------------------------
+
+local repo_info_cache = nil ---@type {owner: string, name: string}|nil
+
+--- Detect the repo owner and name (cached).
+---@param callback fun(owner: string|nil, name: string|nil)
+function M.detect_repo_info(callback)
+  if repo_info_cache then
+    callback(repo_info_cache.owner, repo_info_cache.name)
+    return
+  end
+  local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
+    "repo",
+    "view",
+    "--json",
+    "owner,name",
+    "-q",
+    '.owner.login + "|" + .name',
+  })
+  vim.system(cmd, { text = true }, function(result)
+    vim.schedule(function()
+      if result.code == 0 and result.stdout then
+        local owner, name = vim.trim(result.stdout):match("^(.+)|(.+)$")
+        if owner and name then
+          repo_info_cache = { owner = owner, name = name }
+          callback(owner, name)
+          return
+        end
+      end
+      callback(nil, nil)
+    end)
+  end)
+end
+
+--- Reset repo info cache (for testing).
+function M._reset_repo_info()
+  repo_info_cache = nil
+end
+
 --- Expose gh_base_cmd for other api modules.
 ---@return string[]
 function M._gh_base_cmd()
@@ -174,6 +215,18 @@ function M.expand_column(col_index, callback)
     return require("okuban.api_project").expand_column(col_index, callback)
   end
   return require("okuban.api_labels").expand_column(col_index, callback)
+end
+
+--- Fetch sub-issue counts for a list of issue numbers. Routes based on source.
+--- In project mode, counts are embedded in issue objects (no extra call needed).
+---@param issue_numbers integer[]
+---@param callback fun(counts: table<integer, {total: integer, completed: integer}>)
+function M.fetch_sub_issue_counts(issue_numbers, callback)
+  if config.get().source == "project" then
+    callback({})
+    return
+  end
+  return require("okuban.api_labels").fetch_sub_issue_counts(issue_numbers, callback)
 end
 
 --- Fetch issues for a single label (label-mode only).

@@ -263,6 +263,7 @@ local function build_items_query(field_name)
     .. "              number title body state\n"
     .. "              assignees(first: 5) { nodes { login } }\n"
     .. "              labels(first: 10) { nodes { name color } }\n"
+    .. "              subIssuesSummary { total completed }\n"
     .. "            }\n"
     .. "            ... on DraftIssue { title body }\n"
     .. "          }\n"
@@ -282,6 +283,8 @@ function M.fetch_items_page(project_id, cursor, callback)
   local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
     "api",
     "graphql",
+    "-H",
+    "GraphQL-Features: sub_issues",
     "-f",
     "query=" .. query,
     "-F",
@@ -373,6 +376,14 @@ local function transform_item(item)
     assignees = assignees,
     labels = labels,
   }
+
+  -- Embed sub-issue counts if available
+  if content.subIssuesSummary and content.subIssuesSummary.total and content.subIssuesSummary.total > 0 then
+    issue.sub_issue_counts = {
+      total = content.subIssuesSummary.total,
+      completed = content.subIssuesSummary.completed or 0,
+    }
+  end
 
   local status_option_id = nil
   if item.fieldValueByName and type(item.fieldValueByName) == "table" then

@@ -119,6 +119,7 @@ function Board.new()
   o.preview_buf = nil
   o._poll_timer = nil
   o._polling = false
+  o.sub_issue_counts = {}
   return o
 end
 
@@ -249,7 +250,8 @@ function Board:update_preview(issue)
   local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines)
   local inner_width = layout.board_width - 2
   local sessions = claude.get_all_sessions()
-  local lines = card.render_preview(issue, inner_width, layout.preview_height, self.worktree_map, sessions)
+  local lines =
+    card.render_preview(issue, inner_width, layout.preview_height, self.worktree_map, sessions, self.sub_issue_counts)
 
   vim.bo[self.preview_buf].modifiable = true
   vim.api.nvim_buf_set_lines(self.preview_buf, 0, -1, false, lines)
@@ -484,7 +486,7 @@ function Board:populate(data)
 
     if buf and vim.api.nvim_buf_is_valid(buf) then
       local inner_width = layout.col_width - 2
-      local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map, sessions)
+      local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map, sessions, self.sub_issue_counts)
       col.card_ranges = card_ranges
 
       vim.bo[buf].modifiable = true
@@ -523,7 +525,8 @@ function Board:populate(data)
       local buf = self.buffers[i]
       if buf and vim.api.nvim_buf_is_valid(buf) then
         local inner_width = layout.col_width - 2
-        local lines, card_ranges = card.render_column(col.issues, inner_width, enriched_map, sessions)
+        local lines, card_ranges =
+          card.render_column(col.issues, inner_width, enriched_map, sessions, self.sub_issue_counts)
         col.card_ranges = card_ranges
         vim.bo[buf].modifiable = true
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -537,6 +540,43 @@ function Board:populate(data)
       self.navigation:highlight_current()
     end
   end)
+
+  -- Fetch sub-issue counts asynchronously
+  local all_numbers = {}
+  for _, col in ipairs(cols) do
+    for _, issue in ipairs(col.issues) do
+      table.insert(all_numbers, issue.number)
+    end
+  end
+  if #all_numbers > 0 then
+    local api = require("okuban.api")
+    api.fetch_sub_issue_counts(all_numbers, function(counts)
+      if not self:is_open() then
+        return
+      end
+      if not counts or vim.tbl_isempty(counts) then
+        return
+      end
+      self.sub_issue_counts = counts
+      -- Re-render columns with sub-issue badges
+      local re_sessions = claude.get_all_sessions()
+      for i, col in ipairs(self.columns) do
+        local buf = self.buffers[i]
+        if buf and vim.api.nvim_buf_is_valid(buf) then
+          local re_layout = Board.calculate_layout(#self.columns, nil, nil, cfg.preview_lines or 0)
+          local iw = re_layout.col_width - 2
+          local lines, card_ranges = card.render_column(col.issues, iw, self.worktree_map, re_sessions, counts)
+          col.card_ranges = card_ranges
+          vim.bo[buf].modifiable = true
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+          vim.bo[buf].modifiable = false
+        end
+      end
+      if self.navigation then
+        self.navigation:highlight_current()
+      end
+    end)
+  end
 
   -- Set up or update navigation, preserving position during refresh
   local Navigation = require("okuban.ui.navigation")
@@ -594,7 +634,7 @@ function Board:open(data)
     vim.bo[buf].filetype = "okuban"
 
     local inner_width = layout.col_width - 2
-    local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map, sessions)
+    local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map, sessions, self.sub_issue_counts)
     col.card_ranges = card_ranges
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     vim.bo[buf].modifiable = false
