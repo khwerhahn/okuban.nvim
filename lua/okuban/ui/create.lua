@@ -9,6 +9,43 @@ local create_buf = nil
 local template_cache = nil -- nil=not fetched, false=none, table=list
 
 -- ---------------------------------------------------------------------------
+-- Backdrop overlay (dims everything behind the picker / body editor)
+-- ---------------------------------------------------------------------------
+
+local backdrop_win = nil
+local backdrop_buf = nil
+
+--- Show a full-screen semi-transparent backdrop behind modals.
+local function show_backdrop()
+  if backdrop_win and vim.api.nvim_win_is_valid(backdrop_win) then
+    return -- already visible
+  end
+  backdrop_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[backdrop_buf].buftype = "nofile"
+  vim.bo[backdrop_buf].bufhidden = "wipe"
+  backdrop_win = vim.api.nvim_open_win(backdrop_buf, false, {
+    relative = "editor",
+    row = 0,
+    col = 0,
+    width = vim.o.columns,
+    height = vim.o.lines,
+    style = "minimal",
+    focusable = false,
+    zindex = 65, -- between board (50) and picker/editor (70)
+  })
+  vim.wo[backdrop_win].winhighlight = "Normal:OkubanBackdrop"
+end
+
+--- Close the backdrop overlay.
+local function close_backdrop()
+  if backdrop_win and vim.api.nvim_win_is_valid(backdrop_win) then
+    vim.api.nvim_win_close(backdrop_win, true)
+  end
+  backdrop_win = nil
+  backdrop_buf = nil
+end
+
+-- ---------------------------------------------------------------------------
 -- Floating picker helpers (centered on screen, replaces vim.ui.select/input)
 -- ---------------------------------------------------------------------------
 
@@ -36,6 +73,8 @@ function M._float_select(items, opts, on_choice)
     on_choice(nil)
     return
   end
+
+  show_backdrop()
 
   local format = opts.format_item or tostring
   local lines = {}
@@ -139,6 +178,7 @@ end
 ---@param on_confirm fun(text: string|nil)
 function M._float_input(opts, on_confirm)
   close_picker()
+  show_backdrop()
 
   local prompt = opts.prompt or "Input:"
   local width = math.max(50, #prompt + 10)
@@ -212,9 +252,10 @@ end
 -- Public API
 -- ---------------------------------------------------------------------------
 
---- Close the create window.
+--- Close the create window and all overlays.
 function M.close()
   close_picker()
+  close_backdrop()
   if create_win and vim.api.nvim_win_is_valid(create_win) then
     vim.api.nvim_win_close(create_win, true)
   end
@@ -383,8 +424,14 @@ end
 ---@param column table Selected kanban column { label, name }
 ---@param board table Board instance
 function M._open_body_buffer(title, body_text, extra_labels, column, board)
-  -- Close any existing create window
-  M.close()
+  -- Close any existing create window (keeps backdrop)
+  close_picker()
+  if create_win and vim.api.nvim_win_is_valid(create_win) then
+    vim.api.nvim_win_close(create_win, true)
+  end
+  create_win = nil
+  create_buf = nil
+  show_backdrop()
 
   local sw = vim.o.columns
   local sh = vim.o.lines
@@ -557,6 +604,7 @@ function M.open(board)
         end,
       }, function(column)
         if not column then
+          close_backdrop()
           return
         end
 
@@ -566,6 +614,7 @@ function M.open(board)
             if title ~= nil then -- nil = cancelled, "" = empty
               utils.notify("Title cannot be empty", vim.log.levels.WARN)
             end
+            close_backdrop()
             return
           end
 
@@ -590,6 +639,7 @@ function M.open(board)
         end,
       }, function(choice)
         if not choice then
+          close_backdrop()
           return
         end
         if not choice._template then
