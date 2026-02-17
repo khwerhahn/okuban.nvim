@@ -8,8 +8,213 @@ local create_win = nil
 local create_buf = nil
 local template_cache = nil -- nil=not fetched, false=none, table=list
 
+-- ---------------------------------------------------------------------------
+-- Floating picker helpers (centered on screen, replaces vim.ui.select/input)
+-- ---------------------------------------------------------------------------
+
+local picker_win = nil
+local picker_buf = nil
+
+--- Close the floating picker if open.
+local function close_picker()
+  if picker_win and vim.api.nvim_win_is_valid(picker_win) then
+    vim.api.nvim_win_close(picker_win, true)
+  end
+  picker_win = nil
+  picker_buf = nil
+end
+
+--- Open a centered floating list picker.
+--- j/k to navigate, CR to select, Esc/q to cancel.
+---@param items table[] Items to choose from
+---@param opts { prompt: string, format_item: fun(item: table): string }
+---@param on_choice fun(item: table|nil)
+function M._float_select(items, opts, on_choice)
+  close_picker()
+
+  if not items or #items == 0 then
+    on_choice(nil)
+    return
+  end
+
+  local format = opts.format_item or tostring
+  local lines = {}
+  for _, item in ipairs(items) do
+    table.insert(lines, "  " .. format(item))
+  end
+
+  local prompt = opts.prompt or "Select:"
+  local width = #prompt + 4
+  for _, line in ipairs(lines) do
+    if #line + 2 > width then
+      width = #line + 2
+    end
+  end
+  if width > 60 then
+    width = 60
+  end
+  if width < 20 then
+    width = 20
+  end
+
+  picker_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(picker_buf, 0, -1, false, lines)
+  vim.bo[picker_buf].buftype = "nofile"
+  vim.bo[picker_buf].bufhidden = "wipe"
+  vim.bo[picker_buf].modifiable = false
+  vim.bo[picker_buf].filetype = "okuban"
+
+  local sw = vim.o.columns
+  local sh = vim.o.lines
+  local height = #lines
+  if height > 15 then
+    height = 15
+  end
+
+  picker_win = vim.api.nvim_open_win(picker_buf, true, {
+    relative = "editor",
+    row = math.floor((sh - height) / 2),
+    col = math.floor((sw - width) / 2),
+    width = width,
+    height = height,
+    style = "minimal",
+    border = "rounded",
+    title = " " .. prompt .. " ",
+    title_pos = "center",
+    footer = " j/k Navigate  CR Select  Esc Cancel ",
+    footer_pos = "center",
+    zindex = 70,
+  })
+
+  vim.wo[picker_win].cursorline = true
+  vim.wo[picker_win].wrap = false
+  vim.wo[picker_win].number = false
+  vim.wo[picker_win].relativenumber = false
+  vim.wo[picker_win].signcolumn = "no"
+
+  -- Place cursor on first item
+  vim.api.nvim_win_set_cursor(picker_win, { 1, 0 })
+
+  local called = false
+  local function select_current()
+    if called then
+      return
+    end
+    called = true
+    local row = vim.api.nvim_win_get_cursor(picker_win)[1]
+    close_picker()
+    on_choice(items[row])
+  end
+
+  local function cancel()
+    if called then
+      return
+    end
+    called = true
+    close_picker()
+    on_choice(nil)
+  end
+
+  local buf_opts = { buffer = picker_buf, nowait = true, silent = true }
+  vim.keymap.set("n", "j", function()
+    local row = vim.api.nvim_win_get_cursor(picker_win)[1]
+    if row < #items then
+      vim.api.nvim_win_set_cursor(picker_win, { row + 1, 0 })
+    end
+  end, buf_opts)
+  vim.keymap.set("n", "k", function()
+    local row = vim.api.nvim_win_get_cursor(picker_win)[1]
+    if row > 1 then
+      vim.api.nvim_win_set_cursor(picker_win, { row - 1, 0 })
+    end
+  end, buf_opts)
+  vim.keymap.set("n", "<CR>", select_current, buf_opts)
+  vim.keymap.set("n", "<Esc>", cancel, buf_opts)
+  vim.keymap.set("n", "q", cancel, buf_opts)
+end
+
+--- Open a centered floating input prompt.
+--- Type text, CR to confirm, Esc to cancel.
+---@param opts { prompt: string }
+---@param on_confirm fun(text: string|nil)
+function M._float_input(opts, on_confirm)
+  close_picker()
+
+  local prompt = opts.prompt or "Input:"
+  local width = math.max(50, #prompt + 10)
+  if width > 70 then
+    width = 70
+  end
+
+  picker_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[picker_buf].buftype = "nofile"
+  vim.bo[picker_buf].bufhidden = "wipe"
+  vim.bo[picker_buf].swapfile = false
+  vim.bo[picker_buf].filetype = "okuban"
+
+  vim.api.nvim_buf_set_lines(picker_buf, 0, -1, false, { "" })
+
+  local sw = vim.o.columns
+  local sh = vim.o.lines
+
+  picker_win = vim.api.nvim_open_win(picker_buf, true, {
+    relative = "editor",
+    row = math.floor(sh / 2),
+    col = math.floor((sw - width) / 2),
+    width = width,
+    height = 1,
+    style = "minimal",
+    border = "rounded",
+    title = " " .. prompt .. " ",
+    title_pos = "center",
+    footer = " CR Confirm  Esc Cancel ",
+    footer_pos = "center",
+    zindex = 70,
+  })
+
+  vim.wo[picker_win].wrap = false
+  vim.wo[picker_win].number = false
+  vim.wo[picker_win].relativenumber = false
+  vim.wo[picker_win].signcolumn = "no"
+
+  vim.cmd("startinsert")
+
+  local called = false
+  local function confirm()
+    if called then
+      return
+    end
+    called = true
+    local line = vim.api.nvim_buf_get_lines(picker_buf, 0, 1, false)[1] or ""
+    close_picker()
+    on_confirm(line)
+  end
+
+  local function cancel()
+    if called then
+      return
+    end
+    called = true
+    close_picker()
+    on_confirm(nil)
+  end
+
+  local buf_opts = { buffer = picker_buf, nowait = true, silent = true }
+  vim.keymap.set("i", "<CR>", function()
+    vim.cmd("stopinsert")
+    confirm()
+  end, buf_opts)
+  vim.keymap.set("n", "<CR>", confirm, buf_opts)
+  vim.keymap.set("n", "<Esc>", cancel, buf_opts)
+end
+
+-- ---------------------------------------------------------------------------
+-- Public API
+-- ---------------------------------------------------------------------------
+
 --- Close the create window.
 function M.close()
+  close_picker()
   if create_win and vim.api.nvim_win_is_valid(create_win) then
     vim.api.nvim_win_close(create_win, true)
   end
@@ -327,6 +532,7 @@ function M._cancel(board)
 end
 
 --- Entry point: open the new issue creation flow.
+--- All steps use centered floating pickers overlaid on the board.
 ---@param board table Board instance
 function M.open(board)
   if not board or not board:is_open() then
@@ -344,8 +550,8 @@ function M.open(board)
         table.insert(col_choices, { label = col.label, name = col.name })
       end
 
-      vim.ui.select(col_choices, {
-        prompt = "Select column:",
+      M._float_select(col_choices, {
+        prompt = "Select column",
         format_item = function(item)
           return item.name
         end,
@@ -355,7 +561,7 @@ function M.open(board)
         end
 
         -- Step 4: Title input
-        vim.ui.input({ prompt = "Issue title: " }, function(title)
+        M._float_input({ prompt = "Issue title" }, function(title)
           if not title or vim.trim(title) == "" then
             if title ~= nil then -- nil = cancelled, "" = empty
               utils.notify("Title cannot be empty", vim.log.levels.WARN)
@@ -377,8 +583,8 @@ function M.open(board)
         table.insert(choices, { name = display, path = t.path, _template = t })
       end
 
-      vim.ui.select(choices, {
-        prompt = "Issue template:",
+      M._float_select(choices, {
+        prompt = "Issue template",
         format_item = function(item)
           return item.name
         end,

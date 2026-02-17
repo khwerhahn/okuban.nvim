@@ -223,4 +223,64 @@ describe("okuban.create", function()
       assert.truthy(true)
     end)
   end)
+
+  -- -----------------------------------------------------------------------
+  -- _float_select
+  -- -----------------------------------------------------------------------
+  describe("_float_select", function()
+    it("calls callback with nil for empty items", function()
+      local result = "not_called"
+      create._float_select({}, { prompt = "Pick" }, function(item)
+        result = item
+      end)
+      assert.is_nil(result)
+    end)
+
+    it("calls callback with nil for nil items", function()
+      local result = "not_called"
+      create._float_select(nil, { prompt = "Pick" }, function(item)
+        result = item
+      end)
+      assert.is_nil(result)
+    end)
+
+    it("opens a floating window for valid items", function()
+      local items = { { name = "Alpha" }, { name = "Beta" } }
+      local called = false
+      create._float_select(items, {
+        prompt = "Pick",
+        format_item = function(item)
+          return item.name
+        end,
+      }, function()
+        called = true
+      end)
+
+      -- Picker should have opened a window — press Esc to cancel
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
+      vim.wait(100, function()
+        return called
+      end)
+      assert.is_true(called)
+    end)
+  end)
+
+  -- -----------------------------------------------------------------------
+  -- _float_input
+  -- -----------------------------------------------------------------------
+  describe("_float_input", function()
+    it("opens a floating window for input", function()
+      local result = "not_called"
+      create._float_input({ prompt = "Title" }, function(text)
+        result = text
+      end)
+
+      -- Cancel with Esc (leave insert mode first, then Esc to cancel)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc><Esc>", true, false, true), "x", false)
+      vim.wait(100, function()
+        return result ~= "not_called"
+      end)
+      assert.is_nil(result)
+    end)
+  end)
 end)
