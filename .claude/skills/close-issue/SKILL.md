@@ -1,6 +1,6 @@
 ---
 name: close-issue
-description: Close a GitHub issue after work is complete. Moves the kanban label to done, comments on the issue, and closes it.
+description: Close a GitHub issue after work is complete. Moves the kanban label to done, closes stale PRs, deletes feature branches, and closes the issue.
 argument-hint: "<issue-number>"
 allowed-tools: Bash, Read, Grep
 ---
@@ -23,43 +23,92 @@ gh issue view $ARGUMENTS --json number,title,state,labels
 ### 2. Check for linked PRs
 
 ```bash
-gh pr list --search "Fixes #$ARGUMENTS OR Closes #$ARGUMENTS" --json number,title,state,url
+gh pr list --search "Fixes #$ARGUMENTS OR Closes #$ARGUMENTS" --state all --json number,title,state,url,headRefName
 ```
 
-- If open PRs exist, warn: "There are open PRs linked to this issue. Close them first or merge them?"
-- If merged PRs exist, note them as evidence of completion
+Also check by branch name convention:
 
-### 3. Move the kanban label to Done
+```bash
+gh pr list --head "issue-$ARGUMENTS" --state all --json number,title,state,url,headRefName
+```
+
+- If merged PRs exist, note them as evidence of completion
+- If open PRs exist, they will be closed in the next step
+
+### 3. Close stale open PRs linked to this issue
+
+For each **open** PR found in step 2:
+
+```bash
+gh pr close <PR_NUMBER> --comment "Superseded — issue #$ARGUMENTS closed directly."
+```
+
+Collect the `headRefName` from each closed PR for branch cleanup in step 5.
+
+### 4. Move the kanban label to Done
 
 Remove any existing `okuban:` label and add `okuban:done`:
 
 ```bash
-gh issue edit $ARGUMENTS --remove-label "okuban:in-progress" --add-label "okuban:done"
+gh issue edit $ARGUMENTS --remove-label "okuban:backlog" --remove-label "okuban:todo" --remove-label "okuban:in-progress" --remove-label "okuban:review" --add-label "okuban:done"
 ```
 
-### 4. Comment and close
+### 5. Comment and close
 
 ```bash
 gh issue comment $ARGUMENTS --body "Work completed. Closing this issue."
 gh issue close $ARGUMENTS --reason "completed"
 ```
 
-### 5. Clean up feature branch
+### 6. Delete remote feature branches for this issue
 
-Switch to `main` and delete the local feature branch:
+For each branch name collected from PRs in step 2/3, plus any remote branches matching the issue pattern:
+
+```bash
+# Find remote branches matching the issue number
+git fetch --prune
+git branch -r --list "*issue-$ARGUMENTS*"
+```
+
+For each matching remote branch (skip `main`, `HEAD`, `release-please`):
+
+```bash
+git push origin --delete <branch-name>
+```
+
+### 7. Clean up local feature branches
+
+Switch to `main` and pull latest:
 
 ```bash
 git checkout main
 git pull
-git branch -D <feature-branch>
 ```
 
-The remote branch is auto-deleted by GitHub on PR merge (`delete_branch_on_merge` is enabled).
+Find and delete **all** local branches matching this issue:
 
-### 6. Confirm
+```bash
+git branch --list "*issue-$ARGUMENTS*"
+```
+
+For each matching branch (skip the current branch):
+
+```bash
+git branch -D <branch>
+```
+
+Prune stale remote tracking refs:
+
+```bash
+git fetch --prune
+```
+
+### 8. Confirm
 
 Print a summary:
 - Issue: #NUMBER — TITLE
 - Status: **Closed** (completed)
 - Kanban: moved to **Done**
-- Branch: deleted (local + remote)
+- PRs closed: list any PRs closed in step 3 (or "none")
+- Remote branches deleted: list branches deleted in step 6 (or "none")
+- Local branches deleted: list branches deleted in step 7 (or "none")
