@@ -313,7 +313,7 @@ describe("okuban.tmux", function()
       assert.is_truthy(content:find("echo"))
       assert.is_truthy(content:find("hello world"))
       assert.is_truthy(content:find("echo %$%?"))
-      assert.is_truthy(content:find(sentinel))
+      assert.is_truthy(content:find(sentinel, 1, true))
     end)
 
     it("cleans up the script file after execution", function()
@@ -324,6 +324,66 @@ describe("okuban.tmux", function()
       f:close()
       os.remove(script)
       assert.is_truthy(content:find("rm %-f"))
+    end)
+  end)
+
+  describe("write_prompt_file", function()
+    it("writes text to a temp file and returns path", function()
+      local path = tmux.write_prompt_file("Hello, world!")
+      assert.is_truthy(path:find("okuban%-prompt"))
+      local f = io.open(path, "r")
+      assert.is_truthy(f)
+      local content = f:read("*a")
+      f:close()
+      os.remove(path)
+      assert.are.equal("Hello, world!", content)
+    end)
+
+    it("handles multi-line text with special characters", function()
+      local text = "Line 1\nLine 2 with 'quotes' and $vars\nLine 3"
+      local path = tmux.write_prompt_file(text)
+      local f = io.open(path, "r")
+      local content = f:read("*a")
+      f:close()
+      os.remove(path)
+      assert.are.equal(text, content)
+    end)
+  end)
+
+  describe("write_interactive_launcher", function()
+    it("reads prompt from file and passes as positional arg", function()
+      local prompt_file = "/tmp/test-prompt"
+      local sentinel = "/tmp/test-sentinel"
+      local script = tmux.write_interactive_launcher(
+        { "claude", "--max-turns", "10" },
+        prompt_file,
+        sentinel
+      )
+      local f = io.open(script, "r")
+      local content = f:read("*a")
+      f:close()
+      os.remove(script)
+      assert.is_truthy(content:find("#!/bin/sh"))
+      assert.is_truthy(content:find("PROMPT=$(cat", 1, true))
+      assert.is_truthy(content:find(prompt_file, 1, true))
+      assert.is_truthy(content:find('"$PROMPT"', 1, true))
+      assert.is_truthy(content:find("claude"))
+      assert.is_truthy(content:find("echo %$%?"))
+      assert.is_truthy(content:find(sentinel, 1, true))
+    end)
+
+    it("cleans up prompt file and script after execution", function()
+      local prompt_file = "/tmp/test-prompt"
+      local sentinel = "/tmp/test-sentinel"
+      local script = tmux.write_interactive_launcher({ "claude" }, prompt_file, sentinel)
+      local f = io.open(script, "r")
+      local content = f:read("*a")
+      f:close()
+      os.remove(script)
+      -- Should remove prompt file
+      assert.is_truthy(content:find("rm %-f.*" .. prompt_file:gsub("%-", "%%-")))
+      -- Should remove script itself
+      assert.is_truthy(content:find("rm %-f.*okuban%-launcher"))
     end)
   end)
 
@@ -385,6 +445,30 @@ describe("okuban.tmux", function()
         end
       end
       assert.is_true(found_env, "expected -e FOO=bar in command")
+    end)
+
+    it("uses interactive launcher when prompt_file is provided", function()
+      local prompt_file = vim.fn.tempname() .. ".okuban-prompt"
+      local f = io.open(prompt_file, "w")
+      f:write("test prompt")
+      f:close()
+      local cmd, sentinel = tmux.build_split_command({
+        target = "%0",
+        cwd = "/tmp",
+        cmd = { "claude", "--max-turns", "10" },
+        prompt_file = prompt_file,
+      })
+      assert.is_truthy(sentinel)
+      -- Last element should be the interactive launcher script
+      local script_path = cmd[#cmd]
+      assert.is_truthy(script_path:find("okuban%-launcher%.sh"))
+      local sf = io.open(script_path, "r")
+      local content = sf:read("*a")
+      sf:close()
+      os.remove(script_path)
+      os.remove(prompt_file)
+      assert.is_truthy(content:find("PROMPT=$(cat", 1, true))
+      assert.is_truthy(content:find('"$PROMPT"', 1, true))
     end)
   end)
 

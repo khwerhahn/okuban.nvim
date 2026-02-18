@@ -164,44 +164,32 @@ function M.build_system_prompt(issue_number)
     .. issue_number
     .. "' in the message. Follow the project's CLAUDE.md conventions."
 end
-function M.build_command(prompt, issue_number, opts)
-  opts = opts or {}
-  local stream_json = opts.stream_json ~= false
-  local cfg = config.get().claude
-  local cmd = {
-    "claude",
-    "-p",
-    prompt,
-    "--dangerously-skip-permissions",
-    "--max-turns",
-    tostring(cfg.max_turns),
-    "--max-budget-usd",
-    tostring(cfg.max_budget_usd),
-  }
-
-  if stream_json then
-    table.insert(cmd, "--output-format")
-    table.insert(cmd, "stream-json")
-  end
+local function append_common_flags(cmd, issue_number, cfg)
+  vim.list_extend(cmd, { "--dangerously-skip-permissions", "--max-turns", tostring(cfg.max_turns) })
+  vim.list_extend(cmd, { "--max-budget-usd", tostring(cfg.max_budget_usd) })
   if cfg.model then
-    table.insert(cmd, "--model")
-    table.insert(cmd, cfg.model)
+    vim.list_extend(cmd, { "--model", cfg.model })
   end
   if issue_number then
-    table.insert(cmd, "--append-system-prompt")
-    table.insert(cmd, M.build_system_prompt(issue_number))
+    vim.list_extend(cmd, { "--append-system-prompt", M.build_system_prompt(issue_number) })
   end
   if cfg.agent_teams and cfg.agent_teams.enabled then
-    table.insert(cmd, "--teammate-mode")
-    table.insert(cmd, cfg.agent_teams.teammate_mode or "tmux")
+    vim.list_extend(cmd, { "--teammate-mode", cfg.agent_teams.teammate_mode or "tmux" })
   end
   if cfg.allowed_tools and #cfg.allowed_tools > 0 then
     for _, tool in ipairs(cfg.allowed_tools) do
-      table.insert(cmd, "--allowedTools")
-      table.insert(cmd, tool)
+      vim.list_extend(cmd, { "--allowedTools", tool })
     end
   end
-
+end
+function M.build_command(prompt, issue_number, opts)
+  opts = opts or {}
+  local cfg = config.get().claude
+  local cmd = { "claude", "-p", prompt }
+  append_common_flags(cmd, issue_number, cfg)
+  if opts.stream_json ~= false then
+    vim.list_extend(cmd, { "--output-format", "stream-json" })
+  end
   return cmd
 end
 function M.parse_stream_event(line)
@@ -381,13 +369,18 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
     callback(false, "tmux not available")
     return
   end
+  -- Build interactive command: no -p flag, prompt read from file by launcher
   local prompt = headless_cmd[3]
-  local tmux_cmd = M.build_command(prompt, issue_number, { stream_json = false })
-  local split_cfg = config.get().claude.tmux_split or {}
+  local prompt_file = tmux.write_prompt_file(prompt)
+  local cfg = config.get().claude
+  local tmux_cmd = { "claude" }
+  append_common_flags(tmux_cmd, issue_number, cfg)
+  local split_cfg = cfg.tmux_split or {}
   local sentinel, pane_id, pane_err = tmux.launch_pane({
     name = "claude-#" .. issue_number,
     cwd = wt_path,
     cmd = tmux_cmd,
+    prompt_file = prompt_file,
     env = M.build_env(),
     issue_number = issue_number,
     direction = split_cfg.direction,
