@@ -792,5 +792,48 @@ describe("okuban.claude", function()
 
       assert.are.equal("failed", session.status)
     end)
+
+    it("immediate process exit transitions session to failed, not stuck at running", function()
+      -- Integration test: jobstart fires on_exit immediately (process exits instantly).
+      -- Before the fix, on_exit would see status="initializing" and ignore it,
+      -- then a new object with status="running" would overwrite — stuck forever.
+      -- After the fix, session is created before jobstart and on_exit captures it.
+      local orig_jobstart = vim.fn.jobstart
+      local captured_on_exit = nil
+      vim.fn.jobstart = function(_, opts)
+        -- Capture on_exit and invoke it immediately (simulating instant process death)
+        captured_on_exit = opts.on_exit
+        local fake_job_id = 999
+        -- Fire on_exit synchronously before jobstart returns
+        if captured_on_exit then
+          captured_on_exit(fake_job_id, 1, "exit")
+        end
+        return fake_job_id
+      end
+
+      local orig_exec = vim.fn.executable
+      vim.fn.executable = function(name)
+        if name == "claude" then
+          return 1
+        end
+        return orig_exec(name)
+      end
+      claude._reset()
+
+      claude._launch_headless(42, { "claude", "-p", "test" }, "/tmp/wt", function() end, function() end)
+
+      -- Let vim.schedule callbacks fire
+      vim.wait(500, function()
+        local s = claude.get_session(42)
+        return s and s.status == "failed"
+      end)
+
+      local session = claude.get_session(42)
+      assert.is_not_nil(session)
+      assert.are.equal("failed", session.status)
+
+      vim.fn.jobstart = orig_jobstart
+      vim.fn.executable = orig_exec
+    end)
   end)
 end)
