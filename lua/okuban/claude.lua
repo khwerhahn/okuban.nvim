@@ -69,7 +69,6 @@ function M.find_existing_worktree(issue_number)
       return wt_path
     end
   end
-
   return nil
 end
 function M.create_worktree(issue_number, callback)
@@ -78,15 +77,12 @@ function M.create_worktree(issue_number, callback)
     callback(false, nil, err)
     return
   end
-
   local existing = M.find_existing_worktree(issue_number)
   if existing then
     callback(true, existing, nil)
     return
   end
-
   local branch = "feat/issue-" .. issue_number .. "-claude"
-
   vim.system({ "git", "worktree", "add", "-b", branch, wt_path }, { text = true }, function(result)
     vim.schedule(function()
       if result.code == 0 then
@@ -138,7 +134,6 @@ function M.build_prompt(issue_number, context)
     table.insert(parts, context.body)
     table.insert(parts, "")
   end
-
   if context.labels and #context.labels > 0 then
     local label_names = {}
     for _, lbl in ipairs(context.labels) do
@@ -147,7 +142,6 @@ function M.build_prompt(issue_number, context)
     table.insert(parts, "Labels: " .. table.concat(label_names, ", "))
     table.insert(parts, "")
   end
-
   if context.comments and #context.comments > 0 then
     table.insert(parts, "## Recent Comments")
     local max_comments = math.min(5, #context.comments)
@@ -160,9 +154,7 @@ function M.build_prompt(issue_number, context)
     end
     table.insert(parts, "")
   end
-
   table.insert(parts, "Implement the changes described in this issue. Write tests if appropriate.")
-
   return table.concat(parts, "\n")
 end
 function M.build_system_prompt(issue_number)
@@ -312,6 +304,9 @@ function M.launch(issue, callback)
         local launch_mode = cfg.launch_mode
         if cfg.agent_teams and cfg.agent_teams.enabled then
           launch_mode = "tmux"
+        elseif launch_mode == "auto" then
+          local tmux = require("okuban.tmux")
+          launch_mode = tmux.is_available() and "tmux" or "headless"
         end
 
         if launch_mode == "tmux" then
@@ -398,21 +393,23 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
 
   local prompt = headless_cmd[3]
   local tmux_cmd = M.build_command(prompt, issue_number, { stream_json = false })
-
-  local sentinel = tmux.launch_window({
+  local split_cfg = config.get().claude.tmux_split or {}
+  local sentinel, pane_id, pane_err = tmux.launch_pane({
     name = "claude-#" .. issue_number,
     cwd = wt_path,
     cmd = tmux_cmd,
     env = M.build_env(),
+    issue_number = issue_number,
+    direction = split_cfg.direction,
+    size = split_cfg.size,
+    target = split_cfg.target,
   })
-
   if not sentinel then
     active_sessions[issue_number] = nil
-    stop("Failed to launch tmux window")
-    callback(false, "Failed to launch tmux window")
+    stop(pane_err or "Failed to launch tmux pane")
+    callback(false, pane_err or "Failed to launch tmux pane")
     return
   end
-
   active_sessions[issue_number] = {
     job_id = nil,
     session_id = nil,
@@ -423,6 +420,7 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
     num_turns = nil,
     started_at = os.time(),
     sentinel_path = sentinel,
+    pane_id = pane_id,
   }
 
   tmux.poll_sentinel(sentinel, 2000, function(exit_code)
@@ -477,7 +475,8 @@ function M.resume(issue, callback)
     return
   end
 
-  local is_tmux = config.get().claude.launch_mode == "tmux"
+  local mode = config.get().claude.launch_mode
+  local is_tmux = mode == "tmux" or (mode == "auto" and require("okuban.tmux").is_available())
   local cmd = M.build_resume_command(session.session_id, { stream_json = not is_tmux })
   local noop_stop = function(msg)
     if msg then
