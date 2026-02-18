@@ -147,7 +147,7 @@ local defaults = {
     },
     tmux_split = {
       target = "auto",
-      direction = "h",
+      direction = "v",
       size = nil,
     },
   },
