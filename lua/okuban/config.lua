@@ -25,6 +25,7 @@ local M = {}
 ---@field max_budget_usd number
 ---@field max_turns integer
 ---@field model string|nil Override Claude model (e.g. "sonnet", "opus")
+---@field launch_mode "headless"|"tmux" Launch mode: "headless" (jobstart) or "tmux" (new window)
 ---@field allowed_tools string[]
 ---@field worktree_base_dir string|nil
 ---@field auto_push boolean
@@ -116,6 +117,7 @@ local defaults = {
     max_budget_usd = 5.00,
     max_turns = 30,
     model = nil,
+    launch_mode = "headless",
     allowed_tools = {
       "Bash(git:*)",
       "Bash(gh:*)",
