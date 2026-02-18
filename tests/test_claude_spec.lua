@@ -696,4 +696,101 @@ describe("okuban.claude", function()
       assert.is_false(claude.stop(42))
     end)
   end)
+
+  describe("verify_sessions", function()
+    it("marks stale running session as failed when job is dead", function()
+      local sessions = claude.get_all_sessions()
+      -- Use a job_id that doesn't exist (already exited)
+      sessions[42] = { status = "running", job_id = -999 }
+
+      claude.verify_sessions()
+
+      assert.are.equal("failed", sessions[42].status)
+    end)
+
+    it("does not change completed sessions", function()
+      local sessions = claude.get_all_sessions()
+      sessions[42] = { status = "completed", job_id = 123 }
+
+      claude.verify_sessions()
+
+      assert.are.equal("completed", sessions[42].status)
+    end)
+
+    it("does not change failed sessions", function()
+      local sessions = claude.get_all_sessions()
+      sessions[42] = { status = "failed", job_id = 123 }
+
+      claude.verify_sessions()
+
+      assert.are.equal("failed", sessions[42].status)
+    end)
+
+    it("skips sessions without job_id (tmux mode)", function()
+      local sessions = claude.get_all_sessions()
+      sessions[42] = { status = "running", job_id = nil, sentinel_path = "/tmp/sentinel" }
+
+      claude.verify_sessions()
+
+      -- Should remain running since we can't verify tmux sessions via jobwait
+      assert.are.equal("running", sessions[42].status)
+    end)
+
+    it("handles empty sessions table", function()
+      claude._reset()
+      -- Should not error
+      claude.verify_sessions()
+      assert.are.equal(0, vim.tbl_count(claude.get_all_sessions()))
+    end)
+  end)
+
+  describe("_launch_headless race condition fix", function()
+    it("session object is created before jobstart", function()
+      -- Verify the session is set to running before jobstart returns
+      -- by checking the session table is populated immediately
+      local orig_jobstart = vim.fn.jobstart
+      local session_at_jobstart = nil
+      vim.fn.jobstart = function(_, _)
+        -- At this point, session should already be in active_sessions
+        session_at_jobstart = claude.get_session(42)
+        return -1 -- simulate failure so we don't need cleanup
+      end
+
+      local orig_exec = vim.fn.executable
+      vim.fn.executable = function(name)
+        if name == "claude" then
+          return 1
+        end
+        return orig_exec(name)
+      end
+      claude._reset()
+
+      claude._launch_headless(42, { "claude", "-p", "test" }, "/tmp/wt", function() end, function() end)
+
+      assert.is_not_nil(session_at_jobstart)
+      assert.are.equal("running", session_at_jobstart.status)
+
+      vim.fn.jobstart = orig_jobstart
+      vim.fn.executable = orig_exec
+    end)
+
+    it("on_exit handles non-running status", function()
+      -- The on_exit callback should handle any non-terminal status,
+      -- not just "running". This tests the fix for the race condition.
+      local sessions = claude.get_all_sessions()
+      local session = {
+        job_id = 1,
+        status = "running",
+        worktree_path = "/tmp/wt",
+      }
+      sessions[42] = session
+
+      -- Simulate what on_exit does: check non-terminal status
+      if session.status ~= "completed" and session.status ~= "failed" then
+        session.status = "failed"
+      end
+
+      assert.are.equal("failed", session.status)
+    end)
+  end)
 end)

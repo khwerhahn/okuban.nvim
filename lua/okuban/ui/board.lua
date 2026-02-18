@@ -535,6 +535,9 @@ function Board:populate(data)
   local layout = Board.calculate_layout(#cols, nil, nil, preview_lines)
   self._layout = layout
 
+  -- Verify headless session liveness before rendering badges
+  claude.verify_sessions()
+
   -- Fetch worktree map (sync, ~4ms) for card badges
   local wt_map = worktree.fetch_worktree_map()
   self.worktree_map = wt_map
@@ -684,6 +687,9 @@ function Board:open(data)
 
   -- Create header bar above columns
   header.create(layout)
+
+  -- Verify headless session liveness before rendering badges
+  claude.verify_sessions()
 
   -- Fetch worktree map for card badges
   local wt_map = worktree.fetch_worktree_map()

@@ -319,6 +319,21 @@ function M.launch(issue, callback)
   end)
 end
 function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
+  -- Create session object BEFORE jobstart to avoid race condition:
+  -- on_exit can fire before post-jobstart code runs if the process exits immediately.
+  -- By capturing `session` in the closures, we guarantee they update the same object.
+  local session = {
+    job_id = nil,
+    session_id = nil,
+    worktree_path = wt_path,
+    status = "running",
+    turns = 0,
+    cost_usd = nil,
+    num_turns = nil,
+    started_at = os.time(),
+  }
+  active_sessions[issue_number] = session
+
   local buffer = ""
   local job_id = vim.fn.jobstart(cmd, {
     cwd = wt_path,
@@ -352,8 +367,8 @@ function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
     end,
     on_exit = function(_, exit_code, _)
       vim.schedule(function()
-        local session = active_sessions[issue_number]
-        if session and session.status == "running" then
+        -- Handle any non-terminal status (running, initializing, etc.)
+        if session.status ~= "completed" and session.status ~= "failed" then
           session.status = (exit_code == 0) and "completed" or "failed"
           utils.notify(string.format("Claude finished #%d (%s, exit %d)", issue_number, session.status, exit_code))
         end
@@ -368,17 +383,7 @@ function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
     return
   end
 
-  active_sessions[issue_number] = {
-    job_id = job_id,
-    session_id = nil,
-    worktree_path = wt_path,
-    status = "running",
-    turns = 0,
-    cost_usd = nil,
-    num_turns = nil,
-    started_at = os.time(),
-  }
-
+  session.job_id = job_id
   stop("Claude started on #" .. issue_number)
   callback(true, nil)
 end
@@ -484,6 +489,19 @@ function M.resume(issue, callback)
     end
   end
   M._launch_headless(issue_number, cmd, wt_path, noop_stop, callback)
+end
+--- Check all headless sessions for liveness and correct stale "running" status.
+--- Uses vim.fn.jobwait() with 0 timeout (non-blocking) to detect dead jobs.
+function M.verify_sessions()
+  for _, session in pairs(active_sessions) do
+    if session.status == "running" and session.job_id then
+      local result = vim.fn.jobwait({ session.job_id }, 0)
+      if result[1] ~= -1 then
+        -- Job has exited but on_exit didn't update status (or was missed)
+        session.status = "failed"
+      end
+    end
+  end
 end
 function M.stop(issue_number)
   local session = active_sessions[issue_number]
