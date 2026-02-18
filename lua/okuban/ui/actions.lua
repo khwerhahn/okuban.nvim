@@ -17,6 +17,30 @@ function M.close()
   actions_buf = nil
 end
 
+--- Auto-move an issue to in-progress when launching Claude.
+--- Finds the current okuban: label and swaps it. Also handles unsorted issues.
+---@param issue table Issue data with labels
+---@param board table Board instance
+function M._auto_move_to_in_progress(issue, board)
+  local target = "okuban:in-progress"
+  local current_label = nil
+  if issue.labels then
+    for _, lbl in ipairs(issue.labels) do
+      if lbl.name:match("^okuban:") then
+        current_label = lbl.name
+        break
+      end
+    end
+  end
+  if current_label == target then
+    return
+  end
+  -- For unsorted issues (no okuban: label), remove is a no-op in gh CLI
+  local from_label = current_label or target
+  local move = require("okuban.ui.move")
+  move.execute_move(issue.number, from_label, target, "In Progress", board)
+end
+
 --- Build the list of action items for an issue.
 ---@param issue table
 ---@param board table Board instance
@@ -159,6 +183,8 @@ function M._build_actions(issue, board)
             label = "Code with Claude",
             callback = function()
               M.close()
+              -- Auto-move to in-progress when launching Claude
+              M._auto_move_to_in_progress(issue, board)
               claude_mod.launch(issue, function(ok, err)
                 if not ok then
                   utils.notify("Failed: " .. (err or "unknown"), vim.log.levels.ERROR)

@@ -354,11 +354,7 @@ describe("okuban.tmux", function()
     it("reads prompt from file and passes as positional arg", function()
       local prompt_file = "/tmp/test-prompt"
       local sentinel = "/tmp/test-sentinel"
-      local script = tmux.write_interactive_launcher(
-        { "claude", "--max-turns", "10" },
-        prompt_file,
-        sentinel
-      )
+      local script = tmux.write_interactive_launcher({ "claude", "--max-turns", "10" }, prompt_file, sentinel)
       local f = io.open(script, "r")
       local content = f:read("*a")
       f:close()
