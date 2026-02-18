@@ -546,6 +546,84 @@ describe("okuban.claude", function()
     end)
   end)
 
+  describe("build_resume_command", function()
+    it("includes --resume with session_id", function()
+      local cmd = claude.build_resume_command("sess-abc-123")
+      assert.are.equal("claude", cmd[1])
+      assert.are.equal("--resume", cmd[2])
+      assert.are.equal("sess-abc-123", cmd[3])
+    end)
+
+    it("includes stream-json by default", function()
+      local cmd = claude.build_resume_command("sess-123")
+      local found = false
+      for i, v in ipairs(cmd) do
+        if v == "--output-format" and cmd[i + 1] == "stream-json" then
+          found = true
+        end
+      end
+      assert.is_true(found, "expected --output-format stream-json")
+    end)
+
+    it("omits stream-json when stream_json=false", function()
+      local cmd = claude.build_resume_command("sess-123", { stream_json = false })
+      for _, v in ipairs(cmd) do
+        assert.are_not.equal("--output-format", v)
+      end
+    end)
+  end)
+
+  describe("resume", function()
+    it("fails when no session exists", function()
+      local result_ok, result_err
+      claude.resume({ number = 42 }, function(ok, err)
+        result_ok = ok
+        result_err = err
+      end)
+      assert.is_false(result_ok)
+      assert.is_truthy(result_err:find("No session"))
+    end)
+
+    it("fails when session has no session_id", function()
+      local sessions = claude.get_all_sessions()
+      sessions[42] = { status = "completed", session_id = nil, worktree_path = "/tmp/wt" }
+
+      local result_ok, result_err
+      claude.resume({ number = 42 }, function(ok, err)
+        result_ok = ok
+        result_err = err
+      end)
+      assert.is_false(result_ok)
+      assert.is_truthy(result_err:find("No session"))
+    end)
+
+    it("fails when session is still running", function()
+      local sessions = claude.get_all_sessions()
+      sessions[42] = { status = "running", session_id = "sess-123", worktree_path = "/tmp/wt" }
+
+      local result_ok, result_err
+      claude.resume({ number = 42 }, function(ok, err)
+        result_ok = ok
+        result_err = err
+      end)
+      assert.is_false(result_ok)
+      assert.is_truthy(result_err:find("still running"))
+    end)
+
+    it("fails when no worktree path", function()
+      local sessions = claude.get_all_sessions()
+      sessions[42] = { status = "completed", session_id = "sess-123", worktree_path = nil }
+
+      local result_ok, result_err
+      claude.resume({ number = 42 }, function(ok, err)
+        result_ok = ok
+        result_err = err
+      end)
+      assert.is_false(result_ok)
+      assert.is_truthy(result_err:find("worktree"))
+    end)
+  end)
+
   describe("stop", function()
     it("returns false when no session exists", function()
       assert.is_false(claude.stop(42))

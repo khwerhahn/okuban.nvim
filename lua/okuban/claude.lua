@@ -3,17 +3,13 @@ local utils = require("okuban.utils")
 
 local M = {}
 
--- Module-local state
 local active_sessions = {} ---@type table<integer, table>
 local claude_checked = nil ---@type boolean|nil nil=unchecked
 
---- Reset module state (for tests).
 function M._reset()
   active_sessions = {}
   claude_checked = nil
 end
-
---- Check if the `claude` CLI is installed (result is cached).
 ---@return boolean
 function M.is_available()
   if claude_checked ~= nil then
@@ -22,10 +18,7 @@ function M.is_available()
   claude_checked = vim.fn.executable("claude") == 1
   return claude_checked
 end
-
---- Lazy auth verification — runs `claude --version` to confirm CLI works.
 function M.check_auth(callback)
-  -- is_available already checks executable; this validates it actually runs
   if not M.is_available() then
     callback(false, "claude CLI not found")
     return
@@ -41,8 +34,6 @@ function M.check_auth(callback)
     end)
   end)
 end
-
---- Get the git repo root path.
 function M.get_repo_root()
   local result = vim.system({ "git", "rev-parse", "--show-toplevel" }, { text = true }):wait()
   if result.code == 0 and result.stdout then
@@ -50,8 +41,6 @@ function M.get_repo_root()
   end
   return nil
 end
-
---- Compute the worktree path for a given issue number.
 function M.worktree_path(issue_number)
   local cfg = config.get().claude
   if cfg.worktree_base_dir then
@@ -63,11 +52,8 @@ function M.worktree_path(issue_number)
     return nil, "Could not determine git repo root"
   end
 
-  -- Place worktrees in {repo-root}-worktrees/ (sibling of repo)
   return root .. "-worktrees/issue-" .. issue_number, nil
 end
-
---- Check if a worktree already exists for this issue.
 function M.find_existing_worktree(issue_number)
   local wt_path = M.worktree_path(issue_number)
   if not wt_path then
@@ -89,7 +75,6 @@ function M.find_existing_worktree(issue_number)
   return nil
 end
 
---- Create a git worktree for the given issue (async).
 function M.create_worktree(issue_number, callback)
   local wt_path, err = M.worktree_path(issue_number)
   if not wt_path then
@@ -97,7 +82,6 @@ function M.create_worktree(issue_number, callback)
     return
   end
 
-  -- Check if already exists
   local existing = M.find_existing_worktree(issue_number)
   if existing then
     callback(true, existing, nil)
@@ -106,7 +90,6 @@ function M.create_worktree(issue_number, callback)
 
   local branch = "feat/issue-" .. issue_number .. "-claude"
 
-  -- Try creating worktree with new branch
   vim.system({ "git", "worktree", "add", "-b", branch, wt_path }, { text = true }, function(result)
     vim.schedule(function()
       if result.code == 0 then
@@ -114,7 +97,6 @@ function M.create_worktree(issue_number, callback)
         return
       end
 
-      -- Branch may already exist — try without -b
       vim.system({ "git", "worktree", "add", wt_path, branch }, { text = true }, function(result2)
         vim.schedule(function()
           if result2.code == 0 then
@@ -128,7 +110,6 @@ function M.create_worktree(issue_number, callback)
   end)
 end
 
---- Fetch issue context via gh CLI (async).
 function M.fetch_issue_context(issue_number, callback)
   local cmd = { "gh", "issue", "view", tostring(issue_number), "--json", "number,title,body,labels,comments" }
   vim.system(cmd, { text = true }, function(result)
@@ -149,7 +130,6 @@ function M.fetch_issue_context(issue_number, callback)
   end)
 end
 
---- Build the prompt string for Claude from issue context.
 function M.build_prompt(issue_number, context)
   local parts = {
     "You are working on GitHub issue #" .. issue_number .. ".",
@@ -191,7 +171,6 @@ function M.build_prompt(issue_number, context)
   return table.concat(parts, "\n")
 end
 
---- Build a system prompt for Claude with workflow rules.
 function M.build_system_prompt(issue_number)
   return "All commits must include 'Fixes #"
     .. issue_number
@@ -200,11 +179,9 @@ function M.build_system_prompt(issue_number)
     .. "' in the message. Follow the project's CLAUDE.md conventions."
 end
 
---- Build the claude CLI command arguments.
---- opts.stream_json defaults to true; set false for tmux mode.
 function M.build_command(prompt, issue_number, opts)
   opts = opts or {}
-  local stream_json = opts.stream_json ~= false -- default true
+  local stream_json = opts.stream_json ~= false
   local cfg = config.get().claude
   local cmd = {
     "claude",
@@ -242,7 +219,6 @@ function M.build_command(prompt, issue_number, opts)
   return cmd
 end
 
---- Parse a single stream-json line into a structured event.
 function M.parse_stream_event(line)
   if not line or line == "" then
     return nil
@@ -256,7 +232,6 @@ function M.parse_stream_event(line)
   return data
 end
 
---- Handle a stream event for a session.
 local function handle_event(issue_number, event)
   vim.schedule(function()
     local session = active_sessions[issue_number]
@@ -292,7 +267,6 @@ local function handle_event(issue_number, event)
   end)
 end
 
---- Launch an autonomous Claude session for an issue.
 function M.launch(issue, callback)
   callback = callback or function() end
   local issue_number = issue.number
@@ -302,7 +276,6 @@ function M.launch(issue, callback)
     return
   end
 
-  -- Check for existing running/initializing session
   local existing = active_sessions[issue_number]
   if existing and (existing.status == "running" or existing.status == "initializing") then
     utils.notify("Claude is already working on #" .. issue_number)
@@ -310,11 +283,9 @@ function M.launch(issue, callback)
     return
   end
 
-  -- Reserve the slot immediately to prevent race conditions
   active_sessions[issue_number] = { status = "initializing" }
   local stop = utils.spinner_start("Launching Claude for #" .. issue_number .. "...")
 
-  -- Auth check (lazy, first use)
   M.check_auth(function(auth_ok, auth_err)
     if not auth_ok then
       active_sessions[issue_number] = nil
@@ -324,7 +295,6 @@ function M.launch(issue, callback)
     end
 
     utils.spinner_update("Creating worktree...")
-    -- Create worktree
     M.create_worktree(issue_number, function(wt_ok, wt_path, wt_err)
       if not wt_ok or not wt_path then
         active_sessions[issue_number] = nil
@@ -334,7 +304,6 @@ function M.launch(issue, callback)
       end
 
       utils.spinner_update("Fetching issue context...")
-      -- Fetch issue context
       M.fetch_issue_context(issue_number, function(context, ctx_err)
         if not context then
           active_sessions[issue_number] = nil
@@ -357,7 +326,6 @@ function M.launch(issue, callback)
   end)
 end
 
---- Launch Claude in headless mode via jobstart (stream-json output).
 function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
   local buffer = ""
   local job_id = vim.fn.jobstart(cmd, {
@@ -423,7 +391,6 @@ function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
   callback(true, nil)
 end
 
---- Launch Claude in a tmux window.
 function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
   local tmux = require("okuban.tmux")
   if not tmux.is_available() then
@@ -440,7 +407,7 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
     name = "claude-#" .. issue_number,
     cwd = wt_path,
     cmd = tmux_cmd,
-    env = M.build_env(),
+    env = {},
   })
 
   if not sentinel then
@@ -462,7 +429,6 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
     sentinel_path = sentinel,
   }
 
-  -- Poll sentinel file for completion
   tmux.poll_sentinel(sentinel, 2000, function(exit_code)
     local session = active_sessions[issue_number]
     if session then
@@ -475,22 +441,50 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
   callback(true, nil)
 end
 
---- Build environment variables for Claude sessions.
-function M.build_env()
-  return {}
-end
-
---- Get session info for a specific issue.
 function M.get_session(issue_number)
   return active_sessions[issue_number]
 end
-
---- Get all active sessions.
 function M.get_all_sessions()
   return active_sessions
 end
+function M.build_resume_command(session_id, opts)
+  opts = opts or {}
+  local cmd = { "claude", "--resume", session_id }
+  if opts.stream_json ~= false then
+    table.insert(cmd, "--output-format")
+    table.insert(cmd, "stream-json")
+  end
+  return cmd
+end
 
---- Stop a running Claude session.
+function M.resume(issue, callback)
+  callback = callback or function() end
+  local issue_number = issue.number
+  local session = active_sessions[issue_number]
+  if not session or not session.session_id then
+    callback(false, "No session to resume for #" .. issue_number)
+    return
+  end
+  if session.status == "running" or session.status == "initializing" then
+    callback(false, "Session is still running for #" .. issue_number)
+    return
+  end
+  local wt_path = session.worktree_path
+  if not wt_path then
+    callback(false, "No worktree path for session #" .. issue_number)
+    return
+  end
+
+  local is_tmux = config.get().claude.launch_mode == "tmux"
+  local cmd = M.build_resume_command(session.session_id, { stream_json = not is_tmux })
+  local noop_stop = function(msg)
+    if msg then
+      utils.notify(msg)
+    end
+  end
+  M._launch_headless(issue_number, cmd, wt_path, noop_stop, callback)
+end
+
 function M.stop(issue_number)
   local session = active_sessions[issue_number]
   if not session or session.status ~= "running" then

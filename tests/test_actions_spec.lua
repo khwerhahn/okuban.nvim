@@ -188,6 +188,91 @@ describe("okuban.ui.actions", function()
     end)
   end)
 
+  describe("claude action states", function()
+    it("shows 'Code with Claude' when no session exists", function()
+      -- Ensure claude is enabled and available
+      config.setup({ claude = { enabled = true } })
+      local orig = vim.fn.executable
+      vim.fn.executable = function(name)
+        if name == "claude" then
+          return 1
+        end
+        return orig(name)
+      end
+      package.loaded["okuban.claude"] = nil
+      local claude_mod = require("okuban.claude")
+      claude_mod._reset()
+
+      local issue = { number = 99, title = "Test", state = "OPEN" }
+      local board = {}
+      local action_list = actions._build_actions(issue, board)
+      local found_label
+      for _, a in ipairs(action_list) do
+        if a.key == "x" then
+          found_label = a.label
+        end
+      end
+      assert.are.equal("Code with Claude", found_label)
+      vim.fn.executable = orig
+    end)
+
+    it("shows 'Resume Claude session' when session is completed with session_id", function()
+      config.setup({ claude = { enabled = true } })
+      local orig = vim.fn.executable
+      vim.fn.executable = function(name)
+        if name == "claude" then
+          return 1
+        end
+        return orig(name)
+      end
+      package.loaded["okuban.claude"] = nil
+      local claude_mod = require("okuban.claude")
+      claude_mod._reset()
+      local sessions = claude_mod.get_all_sessions()
+      sessions[99] = { status = "completed", session_id = "sess-abc" }
+
+      local issue = { number = 99, title = "Test", state = "OPEN" }
+      local board = {}
+      local action_list = actions._build_actions(issue, board)
+      local found_label
+      for _, a in ipairs(action_list) do
+        if a.key == "x" then
+          found_label = a.label
+        end
+      end
+      assert.are.equal("Resume Claude session", found_label)
+      vim.fn.executable = orig
+    end)
+
+    it("shows 'Claude is running...' when session is active", function()
+      config.setup({ claude = { enabled = true } })
+      local orig = vim.fn.executable
+      vim.fn.executable = function(name)
+        if name == "claude" then
+          return 1
+        end
+        return orig(name)
+      end
+      package.loaded["okuban.claude"] = nil
+      local claude_mod = require("okuban.claude")
+      claude_mod._reset()
+      local sessions = claude_mod.get_all_sessions()
+      sessions[99] = { status = "running" }
+
+      local issue = { number = 99, title = "Test", state = "OPEN" }
+      local board = {}
+      local action_list = actions._build_actions(issue, board)
+      local found_label
+      for _, a in ipairs(action_list) do
+        if a.key == "x" then
+          found_label = a.label
+        end
+      end
+      assert.are.equal("Claude is running...", found_label)
+      vim.fn.executable = orig
+    end)
+  end)
+
   describe("open_actions keymap", function()
     it("is configured as Enter by default", function()
       local keymaps = config.get().keymaps
