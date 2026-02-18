@@ -11,32 +11,16 @@ end
 ---@param opts { name: string, cwd: string, cmd: string[], env: table<string,string>|nil }
 ---@return string[] tmux_cmd, string sentinel_path
 function M.build_launch_command(opts)
-  -- Build the inner command string (shell-escaped)
-  local parts = {}
-  for _, arg in ipairs(opts.cmd) do
-    table.insert(parts, vim.fn.shellescape(arg))
-  end
-  local inner = table.concat(parts, " ")
-
-  -- Sentinel file for completion detection
   local sentinel = vim.fn.tempname() .. ".okuban-sentinel"
-
-  -- Wrapper: run command, capture exit code, write to sentinel
-  local wrapper = string.format("%s; echo $? > %s", inner, vim.fn.shellescape(sentinel))
-
-  -- Build tmux command
+  local script = M.write_launcher_script(opts.cmd, sentinel)
   local tmux_cmd = { "tmux", "new-window", "-n", opts.name, "-c", opts.cwd }
-
-  -- Add environment variables
   if opts.env then
     for k, v in pairs(opts.env) do
       table.insert(tmux_cmd, "-e")
       table.insert(tmux_cmd, k .. "=" .. v)
     end
   end
-
-  table.insert(tmux_cmd, wrapper)
-
+  table.insert(tmux_cmd, script)
   return tmux_cmd, sentinel
 end
 
@@ -171,17 +155,39 @@ function M.tag_pane(pane_id, issue_number)
   return result.code == 0
 end
 
+--- Write a launcher script that runs the command and writes exit code to sentinel.
+--- Using a script file avoids shell quoting issues when passing complex args through tmux.
+---@param cmd string[] Command to run
+---@param sentinel string Path to sentinel file
+---@return string script_path
+function M.write_launcher_script(cmd, sentinel)
+  local script = vim.fn.tempname() .. ".okuban-launcher.sh"
+  local lines = { "#!/bin/sh" }
+  -- Build the command with proper quoting
+  local parts = {}
+  for _, arg in ipairs(cmd) do
+    table.insert(parts, vim.fn.shellescape(arg))
+  end
+  table.insert(lines, table.concat(parts, " "))
+  table.insert(lines, string.format("echo $? > %s", vim.fn.shellescape(sentinel)))
+  -- Clean up the script itself
+  table.insert(lines, string.format("rm -f %s", vim.fn.shellescape(script)))
+  local f = io.open(script, "w")
+  if not f then
+    return script
+  end
+  f:write(table.concat(lines, "\n") .. "\n")
+  f:close()
+  vim.fn.setfperm(script, "rwx------")
+  return script
+end
+
 --- Build a tmux split-window command with sentinel wrapper.
 ---@param opts table Split options: target, cwd, cmd, env, direction, size
 ---@return string[] tmux_cmd, string sentinel_path
 function M.build_split_command(opts)
-  local parts = {}
-  for _, arg in ipairs(opts.cmd) do
-    table.insert(parts, vim.fn.shellescape(arg))
-  end
-  local inner = table.concat(parts, " ")
   local sentinel = vim.fn.tempname() .. ".okuban-sentinel"
-  local wrapper = string.format("%s; echo $? > %s", inner, vim.fn.shellescape(sentinel))
+  local script = M.write_launcher_script(opts.cmd, sentinel)
   local direction = opts.direction or "h"
   local tmux_cmd = { "tmux", "split-window", "-" .. direction, "-d", "-P", "-F", "#{pane_id}", "-t", opts.target }
   if opts.size then
@@ -196,7 +202,7 @@ function M.build_split_command(opts)
       table.insert(tmux_cmd, k .. "=" .. v)
     end
   end
-  table.insert(tmux_cmd, wrapper)
+  table.insert(tmux_cmd, script)
   return tmux_cmd, sentinel
 end
 
