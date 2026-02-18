@@ -570,41 +570,97 @@ If the user has **polarmutex/git-worktree.nvim** installed, register a hook on `
 
 ### Goal
 
-From the kanban board, select an issue and launch Claude Code to work on it autonomously in a separate git worktree. Monitor progress from within Neovim. Supports both headless (background) and tmux (visible) launch modes.
+From the kanban board, select an issue and launch Claude Code to work on it autonomously in a separate git worktree. Monitor progress from within Neovim. Supports both headless (background) and tmux (interactive, visible) launch modes.
 
 ### Prerequisites
 
-- `claude` CLI installed and authenticated
+- `claude` CLI installed and authenticated (`claude --version` must succeed)
 - `gh` CLI installed and authenticated
 - Git repository with remote configured
-- For tmux mode: running inside a tmux session
+- For tmux mode: running inside a tmux session (`$TMUX` must be set)
 
 ### User Flow
 
 1. User navigates to a card, presses `<CR>`, then `x` (Code with Claude)
 2. Plugin verifies `claude` CLI is available and authenticated (lazy check, first use only)
-3. Plugin creates a git worktree: `feat/issue-{number}-claude` branch in `{repo}-worktrees/issue-{number}`
-4. Plugin fetches issue context: `gh issue view NUMBER --json number,title,body,labels,comments`
-5. Plugin builds a prompt from issue context and a system prompt with commit conventions
-6. Plugin launches Claude Code in the configured mode:
+3. **Issue auto-moves to In Progress** — the current `okuban:` label is swapped to `okuban:in-progress` (no-op if already there; unsorted issues get the label added)
+4. Plugin creates a git worktree: `feat/issue-{number}-claude` branch in `{repo}-worktrees/issue-{number}` (reuses existing worktree if already present)
+5. Plugin fetches issue context: `gh issue view NUMBER --json number,title,body,labels,comments`
+6. Plugin builds a structured prompt from issue context with context-gathering instructions (see [Prompt Architecture](#prompt-architecture))
+7. Plugin launches Claude Code in the configured mode:
 
-**Headless mode** (default — `launch_mode = "headless"`):
+**Headless mode** (`launch_mode = "headless"`):
 ```
 claude -p "{prompt}"
   --dangerously-skip-permissions
   --max-turns 30
   --max-budget-usd 5
   --output-format stream-json
-  --append-system-prompt "All commits must include 'Fixes #N'..."
+  --append-system-prompt "RULES: 1) commit refs 2) feature branches 3) kanban labels 4) read CLAUDE.md"
   --allowedTools "Bash(git:*)" "Bash(gh:*)" "Read" "Edit" ...
 ```
-Stream-json output is parsed via `vim.fn.jobstart()` `on_stdout` callback.
+Stream-json output is parsed via `vim.fn.jobstart()` `on_stdout` callback. Claude runs as a background process — no terminal UI is visible.
 
-**Tmux mode** (`launch_mode = "tmux"`):
-Same command but without `--output-format stream-json`. Launched in a new tmux window via `tmux new-window`. Completion is detected by polling a sentinel file.
+**Tmux mode** (`launch_mode = "tmux"` or `"auto"`):
+Claude runs interactively in a **new tmux pane** split from an existing pane in the current window. The user can watch Claude work in real-time and follow up with additional instructions. The prompt is written to a temp file and read by a launcher script to avoid shell quoting issues with complex multi-line prompts.
 
-7. Card on the board shows a session badge: `[>]` running, `[+]` completed, `[!]` failed
-8. On completion: notification with cost and turn count
+```
+tmux split-window -v -d -P -F '#{pane_id}' -t <target_pane>
+  -c <worktree_path>
+  <launcher_script>
+```
+
+The launcher script reads the prompt from file, runs `claude "$PROMPT" [flags]`, writes the exit code to a sentinel file, then cleans up after itself.
+
+8. Card on the board shows a session badge: `[>]` running, `[+]` completed, `[!]` failed
+9. On completion: notification with cost and turn count
+
+### Launch Mode Selection
+
+| `launch_mode` | Behavior |
+|----------------|----------|
+| `"auto"` (default) | Uses tmux if inside a tmux session (`$TMUX` set), otherwise falls back to headless |
+| `"headless"` | Always runs as a background job via `vim.fn.jobstart()`. No visible terminal. |
+| `"tmux"` | Always splits a tmux pane. Fails if not inside tmux. |
+
+When `agent_teams.enabled = true`, launch mode is forced to `"tmux"` regardless of setting.
+
+### Tmux Pane Splitting
+
+In tmux mode, Claude runs in a **pane** (not a separate window), so the user can see Claude working alongside their Neovim session without switching windows.
+
+**Split target selection** (`tmux_split.target`):
+- `"auto"` (default) — Splits the widest non-Neovim pane in the current window. Falls back to splitting the Neovim pane if it's the only one.
+- `"self"` — Always splits the Neovim pane.
+- `"other"` — Prefers a non-Neovim pane, falls back to Neovim.
+
+**Split direction** (`tmux_split.direction`):
+- `"v"` (default) — Top/bottom stacking (vertical divider line). Best for typical `[Neovim | something]` layouts where you want Claude below.
+- `"h"` — Side-by-side (horizontal divider line).
+
+**Pane tagging**: Each Claude pane is tagged with a custom tmux option (`@okuban_issue`) to prevent duplicate panes for the same issue. The plugin checks for existing panes before splitting.
+
+**Sentinel file**: A temp file that captures the exit code when Claude finishes. Polled every 2 seconds via `vim.uv.new_timer()`. The timer handle is stored on the session object to prevent garbage collection.
+
+### Prompt Architecture
+
+The autonomous Claude session receives two layers of instructions:
+
+**Main prompt** (positional argument or `-p` flag):
+1. Issue context: number, title, description, labels, recent comments
+2. Structured instructions:
+   - Read CLAUDE.md and explore the codebase to understand conventions and architecture
+   - If the issue is vague or missing acceptance criteria, state assumptions before coding
+   - Implement the changes and write tests if appropriate
+
+**System prompt** (`--append-system-prompt`):
+Explicit numbered rules that Claude must follow:
+1. All commits must include `Fixes #N` or `Refs #N`
+2. Work on a feature branch, never commit to main
+3. If creating issues, always add an `okuban:` kanban label
+4. Read CLAUDE.md before starting — it has project conventions
+
+The worktree is a full clone with access to CLAUDE.md, `.claude/` hooks, skills, and settings. This means Claude has the same project conventions available as a human developer.
 
 ### Action Menu States
 
@@ -619,14 +675,16 @@ The `x` key in the action menu adapts based on session state:
 active_sessions = {
   [42] = {
     job_id = 123,           -- vim.fn.jobstart() ID (headless) or nil (tmux)
-    session_id = "uuid",    -- from stream-json init event
+    session_id = "uuid",    -- from stream-json init event (headless only)
     worktree_path = "/path/to/worktree-42",
     status = "running",     -- initializing | running | completed | failed
     turns = 5,
     cost_usd = 0.42,
     num_turns = 8,
     started_at = timestamp,
-    sentinel_path = nil,    -- tmux mode only
+    sentinel_path = "/tmp/xxx.okuban-sentinel",  -- tmux mode only
+    pane_id = "%42",        -- tmux pane ID (tmux mode only)
+    poll_timer = <uv_timer>, -- sentinel poll timer (tmux mode only)
   },
 }
 ```
@@ -638,19 +696,20 @@ active_sessions = {
 - `type: "assistant"` — Claude is working, increment turn count
 - `type: "result"` — session finished, includes `total_cost_usd`, `num_turns`, `is_error`
 
-**Sentinel file** (tmux mode): a temporary file written with the exit code when the command completes. Polled every 2 seconds via `vim.uv.new_timer()`.
+**Sentinel file** (tmux mode): a temporary file written with the exit code when the command completes. Polled every 2 seconds via `vim.uv.new_timer()`. The timer handle is stored in `session.poll_timer` to prevent garbage collection. When the sentinel is found, the timer stops and the exit code determines session status.
 
 ### Security & Cost Control
 
-- **`--dangerously-skip-permissions`** — required for non-interactive headless mode. Tool access is still scoped via `--allowedTools`
+- **`--dangerously-skip-permissions`** — required for non-interactive mode. Tool access is still scoped via `--allowedTools`
 - **Budget cap** via `--max-budget-usd` (default $5)
 - **Turn limit** via `--max-turns` (default 30)
 - **Worktree isolation** — Claude operates in a separate worktree, not the main working tree
-- **System prompt** — commits are required to reference the issue number
+- **System prompt rules** — explicit numbered rules for commit refs, branch policy, kanban labels, and project conventions
+- **Prompt file** — in tmux mode, the prompt is written to a temp file and read by the launcher script, avoiding shell injection risks from complex prompts
 
 ### Post-Completion Actions
 
-Automated actions triggered after a successful session (configurable):
+Automated actions triggered after a successful headless session (configurable):
 - **auto_push** — pushes the worktree branch: `git -C <worktree> push -u origin HEAD`
 - **auto_pr** — creates a PR: `gh pr create --head <branch> --title "feat: address #N" --body "Fixes #N"`
 
@@ -662,7 +721,7 @@ Completed or failed sessions can be resumed from the action menu:
 ```
 claude --resume <session_id> --output-format stream-json
 ```
-Resume reuses the existing worktree and session state.
+Resume reuses the existing worktree and session state. The `session_id` is captured from the stream-json `init` event during headless mode. In tmux mode, session resume is not currently supported (no `session_id` is captured from the interactive TUI).
 
 ### Agent Teams (Experimental)
 
@@ -680,21 +739,26 @@ When `agent_teams.enabled = true`:
 ```lua
 require("okuban").setup({
   claude = {
-    enabled = true,
-    max_budget_usd = 5.00,
-    max_turns = 30,
-    model = nil,              -- override model (e.g. "sonnet", "opus")
-    launch_mode = "headless", -- "headless" (jobstart) or "tmux" (new window)
-    allowed_tools = {
+    enabled = true,             -- enable Claude Code integration
+    max_budget_usd = 5.00,      -- max spend per session
+    max_turns = 30,             -- max agentic turns per session
+    model = nil,                -- override model (e.g. "sonnet", "opus")
+    launch_mode = "auto",       -- "auto" (tmux if available), "headless", or "tmux"
+    allowed_tools = {           -- Claude Code tool allowlist
       "Bash(git:*)", "Bash(gh:*)",
       "Read", "Edit", "Write", "Glob", "Grep",
     },
-    worktree_base_dir = nil,  -- nil = {repo}-worktrees/, or custom path
-    auto_push = false,        -- push branch after successful completion
-    auto_pr = false,          -- create PR after successful completion
-    agent_teams = {
-      enabled = false,        -- EXPERIMENTAL
-      teammate_mode = "tmux", -- "tmux" or "auto"
+    worktree_base_dir = nil,    -- nil = {repo}-worktrees/, or custom path
+    auto_push = false,          -- push branch after successful completion
+    auto_pr = false,            -- create PR after successful completion
+    tmux_split = {              -- tmux pane splitting options
+      target = "auto",          -- "auto" | "self" | "other"
+      direction = "v",          -- "v" (top/bottom) | "h" (side-by-side)
+      size = nil,               -- pane size (e.g. "50%"), nil = tmux default
+    },
+    agent_teams = {             -- EXPERIMENTAL: Claude agent teams
+      enabled = false,
+      teammate_mode = "tmux",   -- "tmux" or "auto"
     },
   },
 })
@@ -702,9 +766,9 @@ require("okuban").setup({
 
 ### Module Structure
 
-- **`lua/okuban/claude.lua`** (~500 lines) — Session lifecycle: availability check, auth, worktree creation, issue context, prompt/command building, stream-json parsing, headless launch, resume, stop
-- **`lua/okuban/tmux.lua`** (~85 lines) — Tmux window management: availability check, command building with sentinel file, window launch, sentinel polling
-- **`lua/okuban/ui/actions.lua`** — Action menu with 3-state Claude logic
+- **`lua/okuban/claude.lua`** (~500 lines) — Session lifecycle: availability check, auth, worktree creation, issue context, prompt/command building, stream-json parsing, headless launch, tmux launch, resume, stop
+- **`lua/okuban/tmux.lua`** (~300 lines) — Tmux pane management: availability check, pane listing/tagging, split target selection, launcher script generation (headless and interactive), prompt file writing, sentinel polling
+- **`lua/okuban/ui/actions.lua`** — Action menu with 3-state Claude logic, auto-move to in-progress on launch
 
 ### Prior Art
 

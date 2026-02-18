@@ -48,13 +48,14 @@ Moving a card between columns swaps labels automatically. No GitHub Projects boa
 - **Auto-focus** — On board open, okuban detects which issue you're working on from your git branch name, recent commit messages, or the `gh` CLI, and scrolls to that card. Press `g` to re-trigger.
 - **Worktree status badges** — Cards show git worktree indicators: `○` (worktree exists, clean), `●` (worktree exists, dirty). The card for your active worktree is highlighted in orange.
 - **Action menu** — Press `<CR>` on any card to open a floating menu with actions: move, view in browser, close, assign, or launch Claude Code.
-- **Claude Code integration** — Launch autonomous Claude Code sessions directly from the board. Each session runs in its own git worktree with sandboxed tools and budget limits.
+- **Claude Code integration** — Launch autonomous Claude Code sessions directly from the board. Each session runs in its own git worktree with sandboxed tools and budget limits. In tmux, Claude runs in a visible pane so you can watch it work and follow up.
 
 ## Prerequisites
 
 - Neovim 0.10+
-- [GitHub CLI](https://cli.github.com) (`gh`) — installed and authenticated
-- [Claude Code](https://claude.ai/code) (`claude`) — optional, only for autonomous coding feature
+- [GitHub CLI](https://cli.github.com) (`gh`) — installed and authenticated (`gh auth login`)
+- [Claude Code](https://claude.ai/code) (`claude`) — optional, only for autonomous coding feature (must be installed and authenticated)
+- [tmux](https://github.com/tmux/tmux) — optional, for interactive Claude sessions (Claude appears in a visible pane alongside Neovim)
 
 ## Installation
 
@@ -198,8 +199,10 @@ require("okuban").setup({
   -- Claude Code integration (requires `claude` CLI)
   claude = {
     enabled = true,
-    max_budget_usd = 5.00,
-    max_turns = 30,
+    max_budget_usd = 5.00,      -- max spend per session
+    max_turns = 30,             -- max agentic turns per session
+    model = nil,                -- override model (e.g. "sonnet", "opus")
+    launch_mode = "auto",       -- "auto" | "headless" | "tmux"
     allowed_tools = {
       "Bash(git:*)",
       "Bash(gh:*)",
@@ -209,9 +212,18 @@ require("okuban").setup({
       "Glob",
       "Grep",
     },
-    worktree_base_dir = nil,  -- nil = auto (../repo-worktrees/)
-    auto_push = false,        -- push worktree branch on session complete
-    auto_pr = false,          -- create PR on session complete
+    worktree_base_dir = nil,    -- nil = auto (../repo-worktrees/)
+    auto_push = false,          -- push worktree branch on session complete
+    auto_pr = false,            -- create PR on session complete
+    tmux_split = {
+      target = "auto",          -- "auto" | "self" | "other"
+      direction = "v",          -- "v" (top/bottom) | "h" (side-by-side)
+      size = nil,               -- pane size (e.g. "50%"), nil = tmux default
+    },
+    agent_teams = {
+      enabled = false,          -- EXPERIMENTAL: Claude agent teams
+      teammate_mode = "tmux",   -- "tmux" or "auto"
+    },
   },
 })
 ```
@@ -300,9 +312,15 @@ See [docs/label-setup.md](docs/label-setup.md) for the full label reference with
 - [x] Preview pane with issue details below the board
 
 ### Phase 3: Autonomous Coding
-- [x] Launch Claude Code sessions from the board
+- [x] Launch Claude Code sessions from the board (headless or interactive tmux mode)
 - [x] Git worktree creation and management for isolated coding
 - [x] Monitor running Claude sessions with live status badges
+- [x] Interactive tmux pane splitting (Claude TUI visible alongside Neovim)
+- [x] Session resume support (`claude --resume`)
+- [x] Post-completion actions (auto-push, auto-PR)
+- [x] Auto-move issue to In Progress on launch
+- [x] Structured prompts with context-gathering instructions
+- [x] Experimental agent teams support
 
 ### Phase 4: Polish & Community
 - [x] GitHub Actions CI (tests, StyLua, Luacheck)
@@ -348,7 +366,17 @@ Cards show git worktree status when a linked worktree exists:
 - Orange highlight — this is your currently active worktree
 
 **How does Claude Code integration work?**
-From the action menu (`<CR>` then `x`), okuban creates a separate git worktree for the issue, fetches the issue context, and launches Claude Code with sandboxed tools and a budget cap. The session runs autonomously while you continue working. Session status is shown as badges on cards: `[▶]` running, `[✓]` completed, `[✗]` failed.
+From the action menu (`<CR>` then `x`), okuban:
+1. Auto-moves the issue to **In Progress** (swaps the kanban label)
+2. Creates a git worktree for isolated coding (`feat/issue-N-claude` branch)
+3. Fetches the issue context (title, body, labels, comments)
+4. Launches Claude Code with sandboxed tools and a budget cap
+
+In **tmux mode** (default when inside tmux), Claude runs in a visible pane split from your current window — you can watch it work and follow up. In **headless mode**, it runs as a background job. Session badges appear on cards: `[▶]` running, `[✓]` completed, `[✗]` failed. Completed sessions can be resumed from the action menu.
+
+Claude receives structured instructions to read CLAUDE.md, explore the codebase, and state assumptions before coding. A system prompt enforces commit references, feature branches, and kanban labels.
+
+See [Feature Architecture § Autonomous Claude Code Sessions](docs/feature-architecture.md#8-autonomous-claude-code-sessions) for the full technical design.
 
 **Can I use this with GitHub Enterprise?**
 Yes. Set the `github_hostname` option:
@@ -434,6 +462,9 @@ Run `gh auth refresh -s project` to add the `project` scope. This is only needed
 
 **"Claude Code not available"**
 Install Claude Code from https://claude.ai/code. This is optional — the board works fully without it.
+
+**"tmux not available"**
+Claude defaults to headless mode if you're not inside tmux. To use interactive mode with a visible Claude pane, start Neovim inside a tmux session. You can also force headless mode: `claude = { launch_mode = "headless" }`.
 
 **Board looks wrong after resizing the terminal**
 The board automatically repositions on `VimResized`, but if something looks off, press `r` to refresh or reopen with `:Okuban`.
