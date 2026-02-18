@@ -546,6 +546,55 @@ describe("okuban.claude", function()
     end)
   end)
 
+  describe("post-completion actions", function()
+    it("skips when auto_push and auto_pr are both false", function()
+      config.setup({ claude = { auto_push = false, auto_pr = false } })
+      local calls = helpers.mock_vim_system({})
+      claude._run_post_completion(42, "/tmp/wt", { status = "completed" })
+      assert.are.equal(0, #calls)
+    end)
+
+    it("skips when session status is not completed", function()
+      config.setup({ claude = { auto_push = true } })
+      local calls = helpers.mock_vim_system({})
+      claude._run_post_completion(42, "/tmp/wt", { status = "failed" })
+      assert.are.equal(0, #calls)
+    end)
+
+    it("pushes branch when auto_push is true", function()
+      config.setup({ claude = { auto_push = true, auto_pr = false } })
+      local calls = helpers.mock_vim_system({
+        { code = 0, stdout = "" }, -- git push
+      })
+      claude._run_post_completion(42, "/tmp/wt", { status = "completed" })
+
+      vim.wait(1000, function()
+        return #calls > 0
+      end)
+      assert.are.equal(1, #calls)
+      assert.is_truthy(vim.tbl_contains(calls[1].cmd, "push"))
+      assert.is_truthy(vim.tbl_contains(calls[1].cmd, "-C"))
+      assert.is_truthy(vim.tbl_contains(calls[1].cmd, "/tmp/wt"))
+    end)
+
+    it("creates PR when auto_pr is true", function()
+      config.setup({ claude = { auto_push = false, auto_pr = true } })
+      local calls = helpers.mock_vim_system({
+        { code = 0, stdout = "" }, -- git push
+        { code = 0, stdout = "feat/issue-42-claude\n" }, -- git branch --show-current
+        { code = 0, stdout = "" }, -- gh pr create
+      })
+      claude._run_post_completion(42, "/tmp/wt", { status = "completed" })
+
+      vim.wait(2000, function()
+        return #calls >= 3
+      end)
+      assert.are.equal(3, #calls)
+      assert.is_truthy(vim.tbl_contains(calls[3].cmd, "pr"))
+      assert.is_truthy(vim.tbl_contains(calls[3].cmd, "create"))
+    end)
+  end)
+
   describe("stop", function()
     it("returns false when no session exists", function()
       assert.is_false(claude.stop(42))
