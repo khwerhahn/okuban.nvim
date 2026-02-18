@@ -174,7 +174,9 @@ function M.render_card(issue, width, worktree_map, claude_sessions, sub_issue_co
   -- Session status badge
   if claude_sessions and claude_sessions[issue.number] then
     local s = claude_sessions[issue.number]
-    if s.status == "running" then
+    if s.status == "initializing" then
+      badge = badge .. " [\xe2\x80\xa6]" -- U+2026 HORIZONTAL ELLIPSIS
+    elseif s.status == "running" then
       badge = badge .. " [\xe2\x96\xb6]" -- U+25B6 BLACK RIGHT-POINTING TRIANGLE
     elseif s.status == "completed" then
       badge = badge .. " [\xe2\x9c\x93]" -- U+2713 CHECK MARK
@@ -307,7 +309,9 @@ function M.render_preview(issue, width, height, worktree_map, claude_sessions, s
   if claude_sessions and issue and claude_sessions[issue.number] and #lines < height - 1 then
     local s = claude_sessions[issue.number]
     local session_parts = {}
-    if s.status == "running" then
+    if s.status == "initializing" then
+      table.insert(session_parts, "\xe2\x80\xa6 Claude initializing") -- U+2026
+    elseif s.status == "running" then
       table.insert(session_parts, "\xe2\x96\xb6 Claude running") -- U+25B6
     elseif s.status == "completed" then
       table.insert(session_parts, "\xe2\x9c\x93 Claude completed") -- U+2713

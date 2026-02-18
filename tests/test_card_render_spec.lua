@@ -280,6 +280,12 @@ describe("okuban.ui.card", function()
       assert.truthy(result:match("\xe2\x9c\x97")) -- U+2717 BALLOT X
     end)
 
+    it("shows initializing badge for initializing Claude session", function()
+      local sessions = { [42] = { status = "initializing" } }
+      local result = card_mod.render_card({ number = 42, title = "Test" }, 40, nil, sessions)
+      assert.truthy(result:match("\xe2\x80\xa6")) -- U+2026 HORIZONTAL ELLIPSIS
+    end)
+
     it("no session badge when no session exists", function()
       local sessions = { [99] = { status = "running" } }
       local result = card_mod.render_card({ number = 42, title = "Test" }, 40, nil, sessions)
@@ -486,6 +492,32 @@ describe("okuban.ui.card", function()
       for _, line in ipairs(lines) do
         assert.is_falsy(line:match("sub%-issues"))
       end
+    end)
+
+    it("shows initializing status in preview for initializing session", function()
+      local issue = { number = 42, title = "Test", assignees = {}, labels = {} }
+      local sessions = { [42] = { status = "initializing" } }
+      local lines = card_mod.render_preview(issue, 80, 10, nil, sessions)
+      local found = false
+      for _, line in ipairs(lines) do
+        if line:match("initializing") then
+          found = true
+        end
+      end
+      assert.is_true(found, "expected 'initializing' in preview")
+    end)
+
+    it("shows running status in preview for running session", function()
+      local issue = { number = 42, title = "Test", assignees = {}, labels = {} }
+      local sessions = { [42] = { status = "running" } }
+      local lines = card_mod.render_preview(issue, 80, 10, nil, sessions)
+      local found = false
+      for _, line in ipairs(lines) do
+        if line:match("running") then
+          found = true
+        end
+      end
+      assert.is_true(found, "expected 'running' in preview")
     end)
 
     it("respects show_tldr config", function()
