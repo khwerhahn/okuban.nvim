@@ -570,78 +570,110 @@ If the user has **polarmutex/git-worktree.nvim** installed, register a hook on `
 
 ### Goal
 
-From the kanban board, select an issue and launch Claude Code to work on it autonomously in a separate git worktree. Monitor progress from within Neovim.
+From the kanban board, select an issue and launch Claude Code to work on it autonomously in a separate git worktree. Monitor progress from within Neovim. Supports both headless (background) and tmux (visible) launch modes.
 
 ### Prerequisites
 
 - `claude` CLI installed and authenticated
 - `gh` CLI installed and authenticated
 - Git repository with remote configured
+- For tmux mode: running inside a tmux session
 
 ### User Flow
 
-1. User navigates to a card, presses `<CR>`, then `c` (Code)
-2. Plugin checks if a worktree already exists for this issue
-   - If yes: asks whether to reuse it or create a new one
-   - If no: creates a new worktree with branch `feature/issue-{number}`
-3. Plugin pre-fetches issue context: `gh issue view NUMBER --json title,body,labels,comments`
-4. Plugin launches Claude Code headless:
-   ```
-   claude -p "{issue context + instructions}"
-     --allowedTools "Bash(git *),Bash(gh *),Read,Edit,Write,Glob,Grep"
-     --output-format stream-json
-     --max-budget-usd {configurable, default 5.00}
-     --max-turns {configurable, default 30}
-   ```
-5. Plugin shows notification: "Claude started on issue #42"
-6. Card on the board updates with a running indicator
-7. Stream-json output is parsed in `on_stdout` callback for progress events
-8. On completion:
-   - Notification with cost and turn count
-   - Card indicator updates to "completed" or "failed"
-   - User can review changes in the worktree
+1. User navigates to a card, presses `<CR>`, then `x` (Code with Claude)
+2. Plugin verifies `claude` CLI is available and authenticated (lazy check, first use only)
+3. Plugin creates a git worktree: `feat/issue-{number}-claude` branch in `{repo}-worktrees/issue-{number}`
+4. Plugin fetches issue context: `gh issue view NUMBER --json number,title,body,labels,comments`
+5. Plugin builds a prompt from issue context and a system prompt with commit conventions
+6. Plugin launches Claude Code in the configured mode:
+
+**Headless mode** (default — `launch_mode = "headless"`):
+```
+claude -p "{prompt}"
+  --dangerously-skip-permissions
+  --max-turns 30
+  --max-budget-usd 5
+  --output-format stream-json
+  --append-system-prompt "All commits must include 'Fixes #N'..."
+  --allowedTools "Bash(git:*)" "Bash(gh:*)" "Read" "Edit" ...
+```
+Stream-json output is parsed via `vim.fn.jobstart()` `on_stdout` callback.
+
+**Tmux mode** (`launch_mode = "tmux"`):
+Same command but without `--output-format stream-json`. Launched in a new tmux window via `tmux new-window`. Completion is detected by polling a sentinel file.
+
+7. Card on the board shows a session badge: `[>]` running, `[+]` completed, `[!]` failed
+8. On completion: notification with cost and turn count
+
+### Action Menu States
+
+The `x` key in the action menu adapts based on session state:
+- **No session**: "Code with Claude" — launches a new session
+- **Running**: "Claude is running..." — informational only
+- **Completed/Failed with session_id**: "Resume Claude session" — resumes via `claude --resume <session_id>`
 
 ### Session Management
 
-The plugin tracks active Claude sessions in a Lua table:
-
-```
+```lua
 active_sessions = {
   [42] = {
-    job_id = 123,
-    session_id = "uuid",
+    job_id = 123,           -- vim.fn.jobstart() ID (headless) or nil (tmux)
+    session_id = "uuid",    -- from stream-json init event
     worktree_path = "/path/to/worktree-42",
-    status = "running",  -- running | completed | failed
+    status = "running",     -- initializing | running | completed | failed
     turns = 5,
-    cost = 0.42,
+    cost_usd = 0.42,
+    num_turns = 8,
     started_at = timestamp,
+    sentinel_path = nil,    -- tmux mode only
   },
 }
 ```
 
 ### Monitoring
 
-**Stream-json events** provide real-time updates:
+**Stream-json events** (headless mode) provide real-time updates:
 - `type: "system", subtype: "init"` — session started, captures `session_id`
 - `type: "assistant"` — Claude is working, increment turn count
-- `type: "result"` — session finished, includes `total_cost_usd`, `duration_ms`, `num_turns`, `is_error`
+- `type: "result"` — session finished, includes `total_cost_usd`, `num_turns`, `is_error`
+
+**Sentinel file** (tmux mode): a temporary file written with the exit code when the command completes. Polled every 2 seconds via `vim.uv.new_timer()`.
 
 ### Security & Cost Control
 
-- **Scoped tool permissions** via `--allowedTools` instead of `--dangerously-skip-permissions`
-- **Budget cap** via `--max-budget-usd` (user-configurable, default $5)
-- **Turn limit** via `--max-turns` (user-configurable, default 30)
-- **Worktree isolation** — Claude can only modify files within the worktree, not the main working tree
-- **No force push** — The allowedTools pattern `Bash(git *)` permits git operations but Claude Code's built-in safeguards prevent destructive operations unless explicitly told
+- **`--dangerously-skip-permissions`** — required for non-interactive headless mode. Tool access is still scoped via `--allowedTools`
+- **Budget cap** via `--max-budget-usd` (default $5)
+- **Turn limit** via `--max-turns` (default 30)
+- **Worktree isolation** — Claude operates in a separate worktree, not the main working tree
+- **System prompt** — commits are required to reference the issue number
 
 ### Post-Completion Actions
 
-After Claude finishes, the user can:
-- Review changes: open the worktree in a new Neovim instance or use `DiffviewOpen` on the branch
-- Push the branch: `git -C <worktree> push -u origin <branch>`
-- Create a PR: `gh pr create` from the worktree
-- Resume the session: `claude --resume <session_id>` for follow-up work
-- Clean up: `git worktree remove <path>` if the work is discarded
+Automated actions triggered after a successful session (configurable):
+- **auto_push** — pushes the worktree branch: `git -C <worktree> push -u origin HEAD`
+- **auto_pr** — creates a PR: `gh pr create --head <branch> --title "feat: address #N" --body "Fixes #N"`
+
+Both default to `false`. Errors are reported via notifications but don't block.
+
+### Session Resume
+
+Completed or failed sessions can be resumed from the action menu:
+```
+claude --resume <session_id> --output-format stream-json
+```
+Resume reuses the existing worktree and session state.
+
+### Agent Teams (Experimental)
+
+> **Status:** Experimental. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
+> This feature depends on Anthropic's agent teams API which is in active development.
+> Configuration and behavior may change. Last verified: February 2026.
+
+When `agent_teams.enabled = true`:
+- Environment variable `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set
+- `--teammate-mode <mode>` flag is added to the command (default: "tmux")
+- Launch mode is forced to "tmux" (agent teams require an interactive terminal)
 
 ### Configuration
 
@@ -651,20 +683,32 @@ require("okuban").setup({
     enabled = true,
     max_budget_usd = 5.00,
     max_turns = 30,
+    model = nil,              -- override model (e.g. "sonnet", "opus")
+    launch_mode = "headless", -- "headless" (jobstart) or "tmux" (new window)
     allowed_tools = {
-      "Bash(git *)", "Bash(gh *)", "Bash(npm test *)",
+      "Bash(git:*)", "Bash(gh:*)",
       "Read", "Edit", "Write", "Glob", "Grep",
     },
-    worktree_base_dir = nil,  -- nil = parent of repo root, or custom path
-    auto_push = false,        -- push branch after completion
-    auto_pr = false,          -- create PR after completion
+    worktree_base_dir = nil,  -- nil = {repo}-worktrees/, or custom path
+    auto_push = false,        -- push branch after successful completion
+    auto_pr = false,          -- create PR after successful completion
+    agent_teams = {
+      enabled = false,        -- EXPERIMENTAL
+      teammate_mode = "tmux", -- "tmux" or "auto"
+    },
   },
 })
 ```
 
+### Module Structure
+
+- **`lua/okuban/claude.lua`** (~500 lines) — Session lifecycle: availability check, auth, worktree creation, issue context, prompt/command building, stream-json parsing, headless launch, resume, stop
+- **`lua/okuban/tmux.lua`** (~85 lines) — Tmux window management: availability check, command building with sentinel file, window launch, sentinel polling
+- **`lua/okuban/ui/actions.lua`** — Action menu with 3-state Claude logic
+
 ### Prior Art
 
-- **ccpm** — Project management system using GitHub Issues and git worktrees for parallel Claude agent execution
+- **ccpm** — Project management using GitHub Issues and git worktrees for parallel Claude agent execution
 - **@agenttools/worktree** — CLI tool that creates worktrees from issues, generates context files, launches Claude in tmux sessions
 - **claude-flow** — Multi-agent orchestration with swarm intelligence
 
