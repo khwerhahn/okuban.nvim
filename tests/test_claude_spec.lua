@@ -41,6 +41,11 @@ describe("okuban.claude", function()
       assert.are.equal(5.00, cfg.max_budget_usd)
     end)
 
+    it("has model as nil by default", function()
+      local cfg = config.get().claude
+      assert.is_nil(cfg.model)
+    end)
+
     it("allows overriding allowed_tools via setup", function()
       config.setup({ claude = { allowed_tools = { "Read", "Write" } } })
       local cfg = config.get().claude
@@ -180,39 +185,60 @@ describe("okuban.claude", function()
   end)
 
   describe("build_command", function()
+    --- Helper to find a flag and its value in a command table.
+    local function find_flag(cmd, flag, expected_value)
+      for i, v in ipairs(cmd) do
+        if v == flag then
+          if expected_value == nil then
+            return true
+          end
+          return cmd[i + 1] == expected_value
+        end
+      end
+      return false
+    end
+
     it("includes -p flag with prompt", function()
-      local cmd = claude.build_command("test prompt", "/tmp/wt")
+      local cmd = claude.build_command("test prompt", 42)
       assert.are.equal("claude", cmd[1])
       assert.are.equal("-p", cmd[2])
       assert.are.equal("test prompt", cmd[3])
     end)
 
     it("includes --output-format stream-json", function()
-      local cmd = claude.build_command("prompt", "/tmp/wt")
-      local found = false
-      for i, v in ipairs(cmd) do
-        if v == "--output-format" and cmd[i + 1] == "stream-json" then
-          found = true
-          break
-        end
-      end
-      assert.is_true(found, "expected --output-format stream-json in command")
+      local cmd = claude.build_command("prompt", 42)
+      assert.is_true(find_flag(cmd, "--output-format", "stream-json"), "expected --output-format stream-json")
+    end)
+
+    it("includes --dangerously-skip-permissions", function()
+      local cmd = claude.build_command("prompt", 42)
+      assert.is_true(find_flag(cmd, "--dangerously-skip-permissions"), "expected --dangerously-skip-permissions")
+    end)
+
+    it("includes --max-turns from config", function()
+      local cmd = claude.build_command("prompt", 42)
+      assert.is_true(find_flag(cmd, "--max-turns", "30"), "expected --max-turns 30")
     end)
 
     it("includes --max-budget-usd from config", function()
-      local cmd = claude.build_command("prompt", "/tmp/wt")
+      local cmd = claude.build_command("prompt", 42)
+      assert.is_true(find_flag(cmd, "--max-budget-usd", "5"), "expected --max-budget-usd 5")
+    end)
+
+    it("includes --append-system-prompt with issue reference", function()
+      local cmd = claude.build_command("prompt", 42)
       local found = false
       for i, v in ipairs(cmd) do
-        if v == "--max-budget-usd" and cmd[i + 1] == "5" then
+        if v == "--append-system-prompt" and cmd[i + 1] and cmd[i + 1]:find("Fixes #42") then
           found = true
           break
         end
       end
-      assert.is_true(found, "expected --max-budget-usd 5 in command")
+      assert.is_true(found, "expected --append-system-prompt with Fixes #42")
     end)
 
     it("includes --allowedTools for each configured tool", function()
-      local cmd = claude.build_command("prompt", "/tmp/wt")
+      local cmd = claude.build_command("prompt", 42)
       local tool_count = 0
       for _, v in ipairs(cmd) do
         if v == "--allowedTools" then
@@ -225,15 +251,19 @@ describe("okuban.claude", function()
 
     it("respects custom max_budget_usd", function()
       config.setup({ claude = { max_budget_usd = 10.50 } })
-      local cmd = claude.build_command("prompt", "/tmp/wt")
-      local found = false
-      for i, v in ipairs(cmd) do
-        if v == "--max-budget-usd" and cmd[i + 1] == "10.5" then
-          found = true
-          break
-        end
-      end
-      assert.is_true(found, "expected --max-budget-usd 10.5 in command")
+      local cmd = claude.build_command("prompt", 42)
+      assert.is_true(find_flag(cmd, "--max-budget-usd", "10.5"), "expected --max-budget-usd 10.5")
+    end)
+
+    it("includes --model when configured", function()
+      config.setup({ claude = { model = "sonnet" } })
+      local cmd = claude.build_command("prompt", 42)
+      assert.is_true(find_flag(cmd, "--model", "sonnet"), "expected --model sonnet")
+    end)
+
+    it("omits --model when not configured", function()
+      local cmd = claude.build_command("prompt", 42)
+      assert.is_false(find_flag(cmd, "--model"), "expected no --model flag")
     end)
   end)
 
@@ -283,9 +313,26 @@ describe("okuban.claude", function()
       assert.is_truthy(prompt:find("Comment 8"))
     end)
 
-    it("includes commit instruction with issue reference", function()
+    it("does not include commit instructions (moved to system prompt)", function()
       local prompt = claude.build_prompt(42, { title = "T" })
-      assert.is_truthy(prompt:find("Fixes #42"))
+      assert.is_falsy(prompt:find("commit"))
+    end)
+  end)
+
+  describe("build_system_prompt", function()
+    it("includes Fixes reference for issue number", function()
+      local sp = claude.build_system_prompt(42)
+      assert.is_truthy(sp:find("Fixes #42"))
+    end)
+
+    it("includes Refs reference for issue number", function()
+      local sp = claude.build_system_prompt(42)
+      assert.is_truthy(sp:find("Refs #42"))
+    end)
+
+    it("mentions CLAUDE.md conventions", function()
+      local sp = claude.build_system_prompt(1)
+      assert.is_truthy(sp:find("CLAUDE.md"))
     end)
   end)
 

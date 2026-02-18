@@ -24,6 +24,7 @@ local M = {}
 ---@field enabled boolean
 ---@field max_budget_usd number
 ---@field max_turns integer
+---@field model string|nil Override Claude model (e.g. "sonnet", "opus")
 ---@field allowed_tools string[]
 ---@field worktree_base_dir string|nil
 ---@field auto_push boolean
@@ -114,6 +115,7 @@ local defaults = {
     enabled = true,
     max_budget_usd = 5.00,
     max_turns = 30,
+    model = nil,
     allowed_tools = {
       "Bash(git:*)",
       "Bash(gh:*)",

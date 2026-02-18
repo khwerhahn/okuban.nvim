@@ -201,16 +201,27 @@ function M.build_prompt(issue_number, context)
   end
 
   table.insert(parts, "Implement the changes described in this issue. Write tests if appropriate.")
-  table.insert(parts, "When done, commit your changes with a message referencing Fixes #" .. issue_number .. ".")
 
   return table.concat(parts, "\n")
 end
 
+--- Build a system prompt for Claude with workflow rules.
+--- Injected via --append-system-prompt to keep the main prompt focused on issue context.
+---@param issue_number integer
+---@return string
+function M.build_system_prompt(issue_number)
+  return "All commits must include 'Fixes #"
+    .. issue_number
+    .. "' or 'Refs #"
+    .. issue_number
+    .. "' in the message. Follow the project's CLAUDE.md conventions."
+end
+
 --- Build the claude CLI command arguments.
 ---@param prompt string
----@param wt_path string Worktree path (used as cwd, not in command)
+---@param issue_number integer Issue number for system prompt
 ---@return string[]
-function M.build_command(prompt, wt_path) -- luacheck: no unused args
+function M.build_command(prompt, issue_number)
   local cfg = config.get().claude
   local cmd = {
     "claude",
@@ -218,11 +229,26 @@ function M.build_command(prompt, wt_path) -- luacheck: no unused args
     prompt,
     "--output-format",
     "stream-json",
+    "--dangerously-skip-permissions",
+    "--max-turns",
+    tostring(cfg.max_turns),
     "--max-budget-usd",
     tostring(cfg.max_budget_usd),
   }
 
-  -- Add allowed tools
+  -- Model override
+  if cfg.model then
+    table.insert(cmd, "--model")
+    table.insert(cmd, cfg.model)
+  end
+
+  -- System prompt with commit conventions
+  if issue_number then
+    table.insert(cmd, "--append-system-prompt")
+    table.insert(cmd, M.build_system_prompt(issue_number))
+  end
+
+  -- Allowed tools
   if cfg.allowed_tools and #cfg.allowed_tools > 0 then
     for _, tool in ipairs(cfg.allowed_tools) do
       table.insert(cmd, "--allowedTools")
@@ -341,7 +367,7 @@ function M.launch(issue, callback)
         end
 
         local prompt = M.build_prompt(issue_number, context)
-        local cmd = M.build_command(prompt, wt_path)
+        local cmd = M.build_command(prompt, issue_number)
 
         -- Launch via jobstart for streaming stdout
         -- jobstart on_stdout receives data as a list of lines split by newlines.
