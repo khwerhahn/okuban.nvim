@@ -275,6 +275,63 @@ function M.parse_stream_event(line)
   return data
 end
 
+--- Run post-completion actions (auto_push, auto_pr) after a successful session.
+---@param issue_number integer
+---@param wt_path string Worktree path
+---@param session table Session state
+local function run_post_completion(issue_number, wt_path, session)
+  local cfg = config.get().claude
+  if not cfg.auto_push and not cfg.auto_pr then
+    return
+  end
+  if session.status ~= "completed" then
+    return
+  end
+
+  -- Push the worktree branch
+  vim.system({ "git", "-C", wt_path, "push", "-u", "origin", "HEAD" }, { text = true }, function(result)
+    vim.schedule(function()
+      if result.code ~= 0 then
+        utils.notify("Auto-push failed for #" .. issue_number, vim.log.levels.WARN)
+        return
+      end
+      utils.notify("Auto-pushed branch for #" .. issue_number)
+
+      if cfg.auto_pr then
+        -- Get current branch name for PR
+        vim.system({ "git", "-C", wt_path, "branch", "--show-current" }, { text = true }, function(br)
+          vim.schedule(function()
+            local branch = br.code == 0 and vim.trim(br.stdout) or nil
+            if not branch then
+              return
+            end
+            local pr_cmd = {
+              "gh",
+              "pr",
+              "create",
+              "--head",
+              branch,
+              "--title",
+              "feat: address #" .. issue_number,
+              "--body",
+              "Automated PR from Claude session.\n\nFixes #" .. issue_number,
+            }
+            vim.system(pr_cmd, { text = true, cwd = wt_path }, function(pr_result)
+              vim.schedule(function()
+                if pr_result.code == 0 then
+                  utils.notify("Auto-created PR for #" .. issue_number)
+                else
+                  utils.notify("Auto-PR failed: " .. (pr_result.stderr or ""), vim.log.levels.WARN)
+                end
+              end)
+            end)
+          end)
+        end)
+      end
+    end)
+  end)
+end
+
 --- Handle a stream event for a session (must be called from main loop via vim.schedule).
 ---@param issue_number integer
 ---@param event table Parsed stream event
@@ -309,6 +366,11 @@ local function handle_event(issue_number, event)
           turns_str ~= "" and (", " .. turns_str) or ""
         )
       )
+
+      -- Run post-completion actions (auto_push, auto_pr)
+      if session.worktree_path then
+        run_post_completion(issue_number, session.worktree_path, session)
+      end
     end
   end)
 end
@@ -415,6 +477,10 @@ function M.launch(issue, callback)
                 utils.notify(
                   string.format("Claude finished #%d (%s, exit %d)", issue_number, session.status, exit_code)
                 )
+                -- Run post-completion actions (auto_push, auto_pr)
+                if session.worktree_path then
+                  run_post_completion(issue_number, session.worktree_path, session)
+                end
               end
             end)
           end,
@@ -472,5 +538,8 @@ function M.stop(issue_number)
   utils.notify("Stopped Claude session for #" .. issue_number)
   return true
 end
+
+--- Exposed for testing only.
+M._run_post_completion = run_post_completion
 
 return M
