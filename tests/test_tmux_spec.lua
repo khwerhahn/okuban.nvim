@@ -76,16 +76,23 @@ describe("okuban.tmux", function()
       assert.is_truthy(sentinel:match("%.okuban%-sentinel$"))
     end)
 
-    it("wraps command with sentinel write", function()
+    it("uses launcher script with sentinel write", function()
       local cmd = tmux.build_launch_command({
         name = "test",
         cwd = "/tmp",
         cmd = { "claude", "-p", "hello world" },
       })
-      -- Last element should be the wrapper command
-      local wrapper = cmd[#cmd]
-      assert.is_truthy(wrapper:find("echo %$%?"))
-      assert.is_truthy(wrapper:find("claude"))
+      -- Last element should be the script path
+      local script_path = cmd[#cmd]
+      assert.is_truthy(script_path:find("okuban%-launcher%.sh"))
+      -- Script content should have the command and sentinel write
+      local f = io.open(script_path, "r")
+      assert.is_truthy(f)
+      local content = f:read("*a")
+      f:close()
+      os.remove(script_path)
+      assert.is_truthy(content:find("claude"))
+      assert.is_truthy(content:find("echo %$%?"))
     end)
   end)
 
@@ -289,6 +296,34 @@ describe("okuban.tmux", function()
         { code = 1, stderr = "no such pane" },
       })
       assert.is_false(tmux.tag_pane("%99", 42))
+    end)
+  end)
+
+  describe("write_launcher_script", function()
+    it("creates executable script with command and sentinel", function()
+      local sentinel = "/tmp/test-sentinel"
+      local script = tmux.write_launcher_script({ "echo", "hello world" }, sentinel)
+      assert.is_truthy(script:find("okuban%-launcher%.sh"))
+      local f = io.open(script, "r")
+      assert.is_truthy(f)
+      local content = f:read("*a")
+      f:close()
+      os.remove(script)
+      assert.is_truthy(content:find("#!/bin/sh"))
+      assert.is_truthy(content:find("echo"))
+      assert.is_truthy(content:find("hello world"))
+      assert.is_truthy(content:find("echo %$%?"))
+      assert.is_truthy(content:find(sentinel))
+    end)
+
+    it("cleans up the script file after execution", function()
+      local sentinel = "/tmp/test-sentinel"
+      local script = tmux.write_launcher_script({ "echo" }, sentinel)
+      local f = io.open(script, "r")
+      local content = f:read("*a")
+      f:close()
+      os.remove(script)
+      assert.is_truthy(content:find("rm %-f"))
     end)
   end)
 

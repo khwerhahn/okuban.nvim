@@ -183,22 +183,18 @@ function M.build_command(prompt, issue_number, opts)
     table.insert(cmd, "--output-format")
     table.insert(cmd, "stream-json")
   end
-
   if cfg.model then
     table.insert(cmd, "--model")
     table.insert(cmd, cfg.model)
   end
-
   if issue_number then
     table.insert(cmd, "--append-system-prompt")
     table.insert(cmd, M.build_system_prompt(issue_number))
   end
-
   if cfg.agent_teams and cfg.agent_teams.enabled then
     table.insert(cmd, "--teammate-mode")
     table.insert(cmd, cfg.agent_teams.teammate_mode or "tmux")
   end
-
   if cfg.allowed_tools and #cfg.allowed_tools > 0 then
     for _, tool in ipairs(cfg.allowed_tools) do
       table.insert(cmd, "--allowedTools")
@@ -226,7 +222,6 @@ local function handle_event(issue_number, event)
     if not session then
       return
     end
-
     if event.type == "system" and event.subtype == "init" then
       session.session_id = event.session_id
     elseif event.type == "assistant" then
@@ -240,17 +235,14 @@ local function handle_event(issue_number, event)
         session.status = "completed"
       end
 
-      local cost_str = session.cost_usd and string.format("$%.2f", session.cost_usd) or "unknown cost"
-      local turns_str = session.num_turns and (session.num_turns .. " turns") or ""
-      utils.notify(
-        string.format(
-          "Claude finished #%d (%s%s%s)",
-          issue_number,
-          session.status,
-          cost_str ~= "unknown cost" and (", " .. cost_str) or "",
-          turns_str ~= "" and (", " .. turns_str) or ""
-        )
-      )
+      local parts = { session.status }
+      if session.cost_usd then
+        table.insert(parts, string.format("$%.2f", session.cost_usd))
+      end
+      if session.num_turns then
+        table.insert(parts, session.num_turns .. " turns")
+      end
+      utils.notify(string.format("Claude finished #%d (%s)", issue_number, table.concat(parts, ", ")))
     end
   end)
 end
@@ -261,17 +253,14 @@ function M.launch(issue, callback)
     callback(false, "claude CLI not found — install it to use autonomous coding")
     return
   end
-
   local existing = active_sessions[issue_number]
   if existing and (existing.status == "running" or existing.status == "initializing") then
     utils.notify("Claude is already working on #" .. issue_number)
     callback(false, "Session already running")
     return
   end
-
   active_sessions[issue_number] = { status = "initializing" }
   local stop = utils.spinner_start("Launching Claude for #" .. issue_number .. "...")
-
   M.check_auth(function(auth_ok, auth_err)
     if not auth_ok then
       active_sessions[issue_number] = nil
@@ -319,9 +308,7 @@ function M.launch(issue, callback)
   end)
 end
 function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
-  -- Create session object BEFORE jobstart to avoid race condition:
-  -- on_exit can fire before post-jobstart code runs if the process exits immediately.
-  -- By capturing `session` in the closures, we guarantee they update the same object.
+  -- Session object created BEFORE jobstart to avoid race condition (#88)
   local session = {
     job_id = nil,
     session_id = nil,
@@ -367,7 +354,6 @@ function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
     end,
     on_exit = function(_, exit_code, _)
       vim.schedule(function()
-        -- Handle any non-terminal status (running, initializing, etc.)
         if session.status ~= "completed" and session.status ~= "failed" then
           session.status = (exit_code == 0) and "completed" or "failed"
           utils.notify(string.format("Claude finished #%d (%s, exit %d)", issue_number, session.status, exit_code))
@@ -395,7 +381,6 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
     callback(false, "tmux not available")
     return
   end
-
   local prompt = headless_cmd[3]
   local tmux_cmd = M.build_command(prompt, issue_number, { stream_json = false })
   local split_cfg = config.get().claude.tmux_split or {}
@@ -428,10 +413,11 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
     pane_id = pane_id,
   }
 
-  tmux.poll_sentinel(sentinel, 2000, function(exit_code)
-    local session = active_sessions[issue_number]
+  local session = active_sessions[issue_number]
+  session.poll_timer = tmux.poll_sentinel(sentinel, 2000, function(exit_code)
     if session then
       session.status = (exit_code == 0) and "completed" or "failed"
+      session.poll_timer = nil
       utils.notify(string.format("Claude finished #%d (%s, exit %d)", issue_number, session.status, exit_code))
     end
   end)
@@ -479,7 +465,6 @@ function M.resume(issue, callback)
     callback(false, "No worktree path for session #" .. issue_number)
     return
   end
-
   local mode = config.get().claude.launch_mode
   local is_tmux = mode == "tmux" or (mode == "auto" and require("okuban.tmux").is_available())
   local cmd = M.build_resume_command(session.session_id, { stream_json = not is_tmux })
@@ -490,14 +475,12 @@ function M.resume(issue, callback)
   end
   M._launch_headless(issue_number, cmd, wt_path, noop_stop, callback)
 end
---- Check all headless sessions for liveness and correct stale "running" status.
---- Uses vim.fn.jobwait() with 0 timeout (non-blocking) to detect dead jobs.
+--- Check headless sessions for liveness; correct stale "running" status.
 function M.verify_sessions()
   for _, session in pairs(active_sessions) do
     if session.status == "running" and session.job_id then
       local result = vim.fn.jobwait({ session.job_id }, 0)
       if result[1] ~= -1 then
-        -- Job has exited but on_exit didn't update status (or was missed)
         session.status = "failed"
       end
     end
