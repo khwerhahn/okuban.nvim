@@ -450,6 +450,50 @@ describe("okuban.ui.navigation", function()
     end)
   end)
 
+  describe("sub-issue selection", function()
+    it("_get_selected_sub returns nil when not on a sub-issue", function()
+      local board = mock_board({ 3 })
+      local nav = Navigation.new(board)
+      assert.is_nil(nav:_get_selected_sub())
+    end)
+
+    it("_get_selected_sub returns the correct sub-issue", function()
+      local board = mock_board({ 3 })
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+
+      local tree = require("okuban.ui.tree")
+      tree.set_expanded(1, 101, {
+        { number = 201, title = "Sub1", state = "OPEN" },
+        { number = 202, title = "Sub2", state = "OPEN" },
+      })
+
+      nav._tree_sub_index = 1
+      local sub = nav:_get_selected_sub()
+      assert.is_not_nil(sub)
+      assert.equals(201, sub.number)
+
+      nav._tree_sub_index = 2
+      sub = nav:_get_selected_sub()
+      assert.is_not_nil(sub)
+      assert.equals(202, sub.number)
+    end)
+
+    it("_get_selected_sub returns nil for out-of-bounds index", function()
+      local board = mock_board({ 3 })
+      local nav = Navigation.new(board)
+
+      local tree = require("okuban.ui.tree")
+      tree.set_expanded(1, 101, {
+        { number = 201, title = "Sub1", state = "OPEN" },
+      })
+
+      nav._tree_sub_index = 5
+      local sub = nav:_get_selected_sub()
+      assert.is_nil(sub)
+    end)
+  end)
+
   describe("empty columns", function()
     it("handles column with zero issues", function()
       local board = mock_board({ 0, 3, 0 })

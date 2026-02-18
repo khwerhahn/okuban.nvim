@@ -635,8 +635,17 @@ function Navigation:setup_keymaps(buf)
       if not self.issue_mode then
         return
       end
-      -- Guard: no actions when on a sub-issue
+      -- Sub-issue context: only 'v' (view in browser) is allowed
       if self._tree_sub_index > 0 then
+        if key == "v" then
+          local sub = self:_get_selected_sub()
+          if sub and sub.number then
+            local api = require("okuban.api")
+            api.view_issue_in_browser(sub.number)
+            local utils = require("okuban.utils")
+            utils.notify("Opening #" .. sub.number .. " in browser")
+          end
+        end
         return
       end
       local issue = self:get_selected_issue()
