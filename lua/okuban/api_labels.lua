@@ -338,6 +338,64 @@ function M.fetch_sub_issue_counts(issue_numbers, callback)
 end
 
 -- ---------------------------------------------------------------------------
+-- Sub-issue details
+-- ---------------------------------------------------------------------------
+
+--- Fetch full sub-issue details for a single parent issue via GraphQL.
+---@param parent_number integer
+---@param callback fun(subs: table[])
+function M.fetch_sub_issues(parent_number, callback)
+  local api = require("okuban.api")
+  api.detect_repo_info(function(owner, name)
+    if not owner or not name then
+      callback({})
+      return
+    end
+
+    local tmpl = '{ repository(owner: "%s", name: "%s") {'
+      .. " issue(number: %d) { subIssues(first: 50)"
+      .. " { nodes { number title state body } } } } }"
+    local query = string.format(tmpl, owner, name, parent_number)
+
+    local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
+      "api",
+      "graphql",
+      "-H",
+      "GraphQL-Features: sub_issues",
+      "-f",
+      "query=" .. query,
+    })
+
+    vim.system(cmd, { text = true }, function(result)
+      vim.schedule(function()
+        if result.code ~= 0 or not result.stdout then
+          callback({})
+          return
+        end
+        local ok, data = pcall(vim.json.decode, result.stdout)
+        if not ok or not data or not data.data or not data.data.repository then
+          callback({})
+          return
+        end
+        local issue = data.data.repository.issue
+        if not issue or not issue.subIssues or not issue.subIssues.nodes then
+          callback({})
+          return
+        end
+        -- Normalize vim.NIL → nil for optional fields (JSON null → vim.NIL in vim.json.decode)
+        local nodes = issue.subIssues.nodes
+        for _, node in ipairs(nodes) do
+          if node.body == vim.NIL then
+            node.body = nil
+          end
+        end
+        callback(nodes)
+      end)
+    end)
+  end)
+end
+
+-- ---------------------------------------------------------------------------
 -- Label management
 -- ---------------------------------------------------------------------------
 

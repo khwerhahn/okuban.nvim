@@ -229,6 +229,14 @@ function M.fetch_sub_issue_counts(issue_numbers, callback)
   return require("okuban.api_labels").fetch_sub_issue_counts(issue_numbers, callback)
 end
 
+--- Fetch full sub-issue details for a single parent issue.
+--- Both label and project modes use the same GraphQL (subIssues is on the Issue type).
+---@param parent_number integer
+---@param callback fun(subs: table[])
+function M.fetch_sub_issues(parent_number, callback)
+  return require("okuban.api_labels").fetch_sub_issues(parent_number, callback)
+end
+
 --- Fetch issues for a single label (label-mode only).
 ---@param label string The label to filter by
 ---@param state string|nil Issue state filter

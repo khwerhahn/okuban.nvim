@@ -108,6 +108,60 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
   end
 end
 
+--- Compute per-column widths, optionally expanding one column.
+--- When focus_col is nil, all columns get equal width.
+--- When focus_col is set, that column gets extra width and others shrink.
+---@param num_cols integer
+---@param board_width integer Total board width
+---@param gap integer Gap between columns
+---@param focus_col integer|nil Column to expand (1-indexed)
+---@param multiplier number|nil Expansion multiplier (default 1.8)
+---@return integer[] widths Per-column widths
+function Board.compute_column_widths(num_cols, board_width, gap, focus_col, multiplier)
+  local total_gaps = (num_cols - 1) * gap
+  local available = board_width - total_gaps
+  local base_width = math.floor(available / num_cols)
+  local min_width = 20
+
+  if not focus_col or num_cols <= 1 then
+    local widths = {}
+    for _ = 1, num_cols do
+      table.insert(widths, base_width)
+    end
+    return widths
+  end
+
+  multiplier = multiplier or 1.8
+  local expanded = math.floor(base_width * multiplier)
+
+  -- Compute shrunk width for other columns
+  local shrunk = math.floor((available - expanded) / (num_cols - 1))
+
+  -- Enforce minimum width on shrunk columns
+  if shrunk < min_width then
+    shrunk = min_width
+    expanded = available - shrunk * (num_cols - 1)
+    -- If expanded is now smaller than base, don't bother expanding
+    if expanded <= base_width then
+      local widths = {}
+      for _ = 1, num_cols do
+        table.insert(widths, base_width)
+      end
+      return widths
+    end
+  end
+
+  local widths = {}
+  for i = 1, num_cols do
+    if i == focus_col then
+      table.insert(widths, expanded)
+    else
+      table.insert(widths, shrunk)
+    end
+  end
+  return widths
+end
+
 --- Create a new Board instance.
 ---@return table
 function Board.new()
@@ -121,6 +175,7 @@ function Board.new()
   o._poll_timer = nil
   o._polling = false
   o.sub_issue_counts = {}
+  o._expanded_col_idx = nil
   return o
 end
 
@@ -472,9 +527,13 @@ function Board:populate(data)
     return
   end
 
+  require("okuban.ui.tree").reset()
+  self._expanded_col_idx = nil
+
   local cfg = config.get()
   local preview_lines = cfg.preview_lines or 0
   local layout = Board.calculate_layout(#cols, nil, nil, preview_lines)
+  self._layout = layout
 
   -- Fetch worktree map (sync, ~4ms) for card badges
   local wt_map = worktree.fetch_worktree_map()
@@ -559,18 +618,21 @@ function Board:populate(data)
         return
       end
       self.sub_issue_counts = counts
-      -- Re-render columns with sub-issue badges
+      -- Re-render columns with sub-issue badges (skip tree-expanded columns)
       local re_sessions = claude.get_all_sessions()
+      local tree = require("okuban.ui.tree")
       for i, col in ipairs(self.columns) do
-        local buf = self.buffers[i]
-        if buf and vim.api.nvim_buf_is_valid(buf) then
-          local re_layout = Board.calculate_layout(#self.columns, nil, nil, cfg.preview_lines or 0)
-          local iw = re_layout.col_width - 2
-          local lines, card_ranges = card.render_column(col.issues, iw, self.worktree_map, re_sessions, counts)
-          col.card_ranges = card_ranges
-          vim.bo[buf].modifiable = true
-          vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-          vim.bo[buf].modifiable = false
+        -- Skip columns that have an active tree expansion (tree owns their buffer content)
+        if not col._visible_items or not tree.has_any_expanded(i) then
+          local buf = self.buffers[i]
+          if buf and vim.api.nvim_buf_is_valid(buf) then
+            local iw = self:get_column_width(i) - 2
+            local lines, card_ranges = card.render_column(col.issues, iw, self.worktree_map, re_sessions, counts)
+            col.card_ranges = card_ranges
+            vim.bo[buf].modifiable = true
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+            vim.bo[buf].modifiable = false
+          end
         end
       end
       if self.navigation then
@@ -617,6 +679,7 @@ function Board:open(data)
   local cfg = config.get()
   local preview_lines = cfg.preview_lines or 0
   local layout = Board.calculate_layout(#cols, nil, nil, preview_lines)
+  self._layout = layout
   self.augroup = vim.api.nvim_create_augroup("OkubanBoard", { clear = true })
 
   -- Create header bar above columns
@@ -689,6 +752,7 @@ function Board:open(data)
 end
 
 --- Reposition all windows after a resize.
+--- Preserves column expansion state if a column is currently expanded.
 function Board:_reposition()
   if #self.windows == 0 then
     return
@@ -698,18 +762,22 @@ function Board:_reposition()
   local preview_lines = cfg.preview_lines or 0
   local num_cols = #self.windows
   local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines)
+  self._layout = layout
 
+  local widths = Board.compute_column_widths(num_cols, layout.board_width, layout.gap, self._expanded_col_idx)
+
+  local col_offset = 0
   for i, win in ipairs(self.windows) do
     if vim.api.nvim_win_is_valid(win) then
-      local col_offset = (i - 1) * (layout.col_width + layout.gap)
       vim.api.nvim_win_set_config(win, {
         relative = "editor",
         row = layout.start_row,
         col = layout.start_col + col_offset,
-        width = layout.col_width,
+        width = widths[i],
         height = layout.board_height,
       })
     end
+    col_offset = col_offset + widths[i] + layout.gap
   end
 
   -- Reposition header window
@@ -726,15 +794,89 @@ function Board:_reposition()
     })
   end
 
+  -- Re-render expanded column with new width if applicable
+  if self._expanded_col_idx and self.navigation then
+    self.navigation:_rerender_column(self._expanded_col_idx)
+    self.navigation:highlight_current()
+  end
+
   -- Update scroll indicators after resize (window height may have changed)
   if self.navigation then
     self.navigation:update_scroll_indicators()
   end
 end
 
+--- Expand a column visually by making it wider and shrinking others.
+--- Updates all window positions and sizes via nvim_win_set_config.
+---@param col_idx integer Column to expand (1-indexed)
+function Board:_apply_column_expansion(col_idx)
+  if #self.windows == 0 or not self._layout then
+    return
+  end
+
+  self._expanded_col_idx = col_idx
+  local layout = self._layout
+  local num_cols = #self.windows
+  local widths = Board.compute_column_widths(num_cols, layout.board_width, layout.gap, col_idx)
+
+  local col_offset = 0
+  for i, win in ipairs(self.windows) do
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_set_config(win, {
+        relative = "editor",
+        row = layout.start_row,
+        col = layout.start_col + col_offset,
+        width = widths[i],
+        height = layout.board_height,
+      })
+    end
+    col_offset = col_offset + widths[i] + layout.gap
+  end
+end
+
+--- Restore all columns to equal width (undo expansion).
+function Board:_restore_column_widths()
+  if #self.windows == 0 or not self._layout then
+    return
+  end
+
+  self._expanded_col_idx = nil
+  local layout = self._layout
+  local num_cols = #self.windows
+  local widths = Board.compute_column_widths(num_cols, layout.board_width, layout.gap, nil)
+
+  local col_offset = 0
+  for i, win in ipairs(self.windows) do
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_set_config(win, {
+        relative = "editor",
+        row = layout.start_row,
+        col = layout.start_col + col_offset,
+        width = widths[i],
+        height = layout.board_height,
+      })
+    end
+    col_offset = col_offset + widths[i] + layout.gap
+  end
+end
+
+--- Get the current width of a specific column (expanded or normal).
+---@param col_idx integer
+---@return integer
+function Board:get_column_width(col_idx)
+  if not self._layout then
+    return 20
+  end
+  local num_cols = #self.windows
+  local widths =
+    Board.compute_column_widths(num_cols, self._layout.board_width, self._layout.gap, self._expanded_col_idx)
+  return widths[col_idx] or self._layout.col_width
+end
+
 --- Close the board and clean up all windows and buffers.
 function Board:close()
   self:_stop_polling()
+  require("okuban.ui.tree").reset()
 
   if self.augroup then
     vim.api.nvim_del_augroup_by_id(self.augroup)
@@ -753,6 +895,7 @@ function Board:close()
   end
   self.preview_win = nil
   self.preview_buf = nil
+  self._expanded_col_idx = nil
 
   for _, win in ipairs(self.windows) do
     if vim.api.nvim_win_is_valid(win) then

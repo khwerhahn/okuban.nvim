@@ -124,4 +124,106 @@ describe("okuban.ui.board layout", function()
       assert.equals(layout.header_row + 4, layout.start_row)
     end)
   end)
+
+  describe("compute_column_widths", function()
+    it("returns equal widths when no focus column", function()
+      -- 5 columns, 108 board width, gap 1
+      -- available = 108 - 4*1 = 104, base = floor(104/5) = 20
+      local widths = Board.compute_column_widths(5, 108, 1, nil)
+      assert.equals(5, #widths)
+      for _, w in ipairs(widths) do
+        assert.equals(20, w)
+      end
+    end)
+
+    it("returns equal widths for single column", function()
+      local widths = Board.compute_column_widths(1, 108, 1, 1)
+      assert.equals(1, #widths)
+      assert.equals(108, widths[1])
+    end)
+
+    it("expands focused column with default 1.8x multiplier", function()
+      -- 5 columns, 108 board width, gap 1
+      -- available = 104, base = 20
+      -- expanded = floor(20 * 1.8) = 36
+      -- shrunk = floor((104 - 36) / 4) = floor(68/4) = 17 — BUT 17 < 20 (min_width)
+      -- min_width enforced: shrunk = 20, expanded = 104 - 20*4 = 24
+      local widths = Board.compute_column_widths(5, 108, 1, 3)
+      assert.equals(5, #widths)
+      -- Focus column (3) should be larger than others
+      assert.is_true(widths[3] > widths[1])
+      -- Non-focus columns should be >= 20 (min_width)
+      for i, w in ipairs(widths) do
+        if i ~= 3 then
+          assert.is_true(w >= 20, "Column " .. i .. " width " .. w .. " < 20")
+        end
+      end
+    end)
+
+    it("expands correctly with wider board", function()
+      -- 5 columns, 160 board width, gap 1
+      -- available = 156, base = floor(156/5) = 31
+      -- expanded = floor(31 * 1.8) = 55
+      -- shrunk = floor((156 - 55) / 4) = floor(101/4) = 25
+      -- 25 >= 20, so no min_width enforcement
+      local widths = Board.compute_column_widths(5, 160, 1, 2)
+      assert.equals(5, #widths)
+      assert.equals(55, widths[2])
+      assert.equals(25, widths[1])
+      assert.equals(25, widths[3])
+    end)
+
+    it("uses custom multiplier", function()
+      -- 5 columns, 160 board width, gap 1, multiplier 2.5
+      -- available = 156, base = 31
+      -- expanded = floor(31 * 2.5) = 77
+      -- shrunk = floor((156 - 77) / 4) = floor(79/4) = 19 — below 20!
+      -- min_width enforced: shrunk = 20, expanded = 156 - 20*4 = 76
+      local widths = Board.compute_column_widths(5, 160, 1, 1, 2.5)
+      assert.equals(5, #widths)
+      assert.equals(76, widths[1])
+      for i = 2, 5 do
+        assert.equals(20, widths[i])
+      end
+    end)
+
+    it("falls back to equal widths when expansion is impossible", function()
+      -- Very narrow: all columns already at minimum
+      -- 5 columns, 104 board width (100 available), gap 1
+      -- base = floor(100/5) = 20
+      -- expanded = floor(20 * 1.8) = 36
+      -- shrunk = floor((100 - 36) / 4) = 16 — below 20
+      -- min_width enforced: shrunk = 20, expanded = 100 - 80 = 20
+      -- expanded <= base (20 <= 20), so fall back to equal
+      local widths = Board.compute_column_widths(5, 104, 1, 3)
+      assert.equals(5, #widths)
+      for _, w in ipairs(widths) do
+        assert.equals(20, w)
+      end
+    end)
+
+    it("handles first column focus", function()
+      local widths = Board.compute_column_widths(5, 160, 1, 1)
+      -- Focus on column 1
+      assert.is_true(widths[1] > widths[2])
+    end)
+
+    it("handles last column focus", function()
+      local widths = Board.compute_column_widths(5, 160, 1, 5)
+      assert.is_true(widths[5] > widths[4])
+    end)
+
+    it("total widths plus gaps equal board_width or less", function()
+      local board_width = 160
+      local gap = 1
+      local num_cols = 5
+      local widths = Board.compute_column_widths(num_cols, board_width, gap, 3)
+      local total = 0
+      for _, w in ipairs(widths) do
+        total = total + w
+      end
+      total = total + (num_cols - 1) * gap
+      assert.is_true(total <= board_width)
+    end)
+  end)
 end)

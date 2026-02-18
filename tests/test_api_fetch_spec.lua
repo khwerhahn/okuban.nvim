@@ -421,6 +421,104 @@ describe("okuban.api fetch", function()
     end)
   end)
 
+  describe("fetch_sub_issues", function()
+    it("parses GraphQL response into sub-issue array", function()
+      local graphql_response = vim.json.encode({
+        data = {
+          repository = {
+            issue = {
+              subIssues = {
+                nodes = {
+                  { number = 11, title = "Sub one", state = "OPEN", body = "desc" },
+                  { number = 12, title = "Sub two", state = "CLOSED", body = "" },
+                },
+              },
+            },
+          },
+        },
+      })
+      helpers.mock_vim_system({
+        { code = 0, stdout = "alice|myrepo" }, -- detect_repo_info
+        { code = 0, stdout = graphql_response }, -- GraphQL query
+      })
+
+      api._reset_repo_info()
+      local done = false
+      local result = nil
+      api.fetch_sub_issues(42, function(subs)
+        done = true
+        result = subs
+      end)
+
+      vim.wait(2000, function()
+        return done
+      end)
+
+      assert.is_not_nil(result)
+      assert.equals(2, #result)
+      assert.equals(11, result[1].number)
+      assert.equals("Sub one", result[1].title)
+      assert.equals("OPEN", result[1].state)
+      assert.equals(12, result[2].number)
+      assert.equals("CLOSED", result[2].state)
+    end)
+
+    it("returns empty array when no sub-issues", function()
+      local graphql_response = vim.json.encode({
+        data = {
+          repository = {
+            issue = {
+              subIssues = {
+                nodes = {},
+              },
+            },
+          },
+        },
+      })
+      helpers.mock_vim_system({
+        { code = 0, stdout = "alice|myrepo" },
+        { code = 0, stdout = graphql_response },
+      })
+
+      api._reset_repo_info()
+      local done = false
+      local result = nil
+      api.fetch_sub_issues(42, function(subs)
+        done = true
+        result = subs
+      end)
+
+      vim.wait(2000, function()
+        return done
+      end)
+
+      assert.is_not_nil(result)
+      assert.equals(0, #result)
+    end)
+
+    it("returns empty array on API error", function()
+      helpers.mock_vim_system({
+        { code = 0, stdout = "alice|myrepo" },
+        { code = 1, stderr = "GraphQL error" },
+      })
+
+      api._reset_repo_info()
+      local done = false
+      local result = nil
+      api.fetch_sub_issues(42, function(subs)
+        done = true
+        result = subs
+      end)
+
+      vim.wait(2000, function()
+        return done
+      end)
+
+      assert.is_not_nil(result)
+      assert.equals(0, #result)
+    end)
+  end)
+
   describe("create_all_labels", function()
     it("creates 5 kanban labels by default", function()
       local responses = {}

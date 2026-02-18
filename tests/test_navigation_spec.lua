@@ -32,6 +32,17 @@ describe("okuban.ui.navigation", function()
       windows = windows,
       buffers = buffers,
       data = { columns = columns },
+      _expanded_col_idx = nil,
+      _layout = { board_width = 108, gap = 1, col_width = 20, start_row = 10, start_col = 6, board_height = 22 },
+      _restore_column_widths = function(self)
+        self._expanded_col_idx = nil
+      end,
+      _apply_column_expansion = function(self, col_idx)
+        self._expanded_col_idx = col_idx
+      end,
+      get_column_width = function()
+        return 20
+      end,
     }
   end
 
@@ -326,6 +337,116 @@ describe("okuban.ui.navigation", function()
       assert.has_no.errors(function()
         nav:update_scroll_indicators()
       end)
+    end)
+  end)
+
+  describe("tree navigation", function()
+    it("starts with _tree_sub_index = 0", function()
+      local board = mock_board({ 3 })
+      local nav = Navigation.new(board)
+      assert.equals(0, nav._tree_sub_index)
+    end)
+
+    it("move_down enters sub-issues when tree is expanded", function()
+      local board = mock_board({ 3 })
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+
+      -- Expand tree for issue 101 (col 1, card 1)
+      local tree = require("okuban.ui.tree")
+      tree.set_expanded(1, 101, {
+        { number = 201, title = "Sub1", state = "OPEN" },
+        { number = 202, title = "Sub2", state = "OPEN" },
+      })
+
+      nav:move_down()
+      assert.equals(1, nav._tree_sub_index)
+      assert.equals(1, nav.card_index)
+    end)
+
+    it("move_down navigates within sub-issues", function()
+      local board = mock_board({ 3 })
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+
+      local tree = require("okuban.ui.tree")
+      tree.set_expanded(1, 101, {
+        { number = 201, title = "Sub1", state = "OPEN" },
+        { number = 202, title = "Sub2", state = "OPEN" },
+      })
+
+      nav._tree_sub_index = 1
+      nav:move_down()
+      assert.equals(2, nav._tree_sub_index)
+      assert.equals(1, nav.card_index)
+    end)
+
+    it("move_down past last sub-issue collapses and moves to next card", function()
+      local board = mock_board({ 3 })
+      board.columns[1]._visible_items = nil
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+      nav._rerender_column = function() end
+
+      local tree = require("okuban.ui.tree")
+      tree.set_expanded(1, 101, {
+        { number = 201, title = "Sub1", state = "OPEN" },
+      })
+
+      nav._tree_sub_index = 1
+      nav:move_down()
+      assert.equals(0, nav._tree_sub_index)
+      assert.equals(2, nav.card_index)
+    end)
+
+    it("move_up from sub_index > 1 decrements", function()
+      local board = mock_board({ 3 })
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+
+      nav._tree_sub_index = 2
+      nav:move_up()
+      assert.equals(1, nav._tree_sub_index)
+    end)
+
+    it("move_up from sub_index 1 returns to parent", function()
+      local board = mock_board({ 3 })
+      local nav = Navigation.new(board)
+      nav.highlight_current = function() end
+
+      nav._tree_sub_index = 1
+      nav:move_up()
+      assert.equals(0, nav._tree_sub_index)
+      assert.equals(1, nav.card_index)
+    end)
+
+    it("column change resets _tree_sub_index", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+      nav._rerender_column = function() end
+
+      local tree = require("okuban.ui.tree")
+      tree.set_expanded(1, 101, {
+        { number = 201, title = "Sub1", state = "OPEN" },
+      })
+      nav._tree_sub_index = 1
+
+      nav:move_right()
+      assert.equals(0, nav._tree_sub_index)
+      assert.equals(2, nav.column_index)
+    end)
+
+    it("focus_issue resets _tree_sub_index", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      nav._focus_window = function() end
+      nav.highlight_current = function() end
+
+      nav._tree_sub_index = 2
+      nav:focus_issue(202) -- col 2, card 2
+      assert.equals(0, nav._tree_sub_index)
     end)
   end)
 

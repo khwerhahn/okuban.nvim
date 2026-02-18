@@ -71,7 +71,7 @@ end
 ---@param body string|nil
 ---@return string|nil
 function M.extract_tldr(body)
-  if not body or body == "" then
+  if not body or type(body) ~= "string" or body == "" then
     return nil
   end
 
