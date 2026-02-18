@@ -182,12 +182,64 @@ function M.write_launcher_script(cmd, sentinel)
   return script
 end
 
+--- Write prompt text to a temp file for safe passing to Claude via tmux.
+--- This avoids all shell quoting issues with complex multi-line prompts.
+---@param text string Prompt text
+---@return string path Temp file path
+function M.write_prompt_file(text)
+  local path = vim.fn.tempname() .. ".okuban-prompt"
+  local f = io.open(path, "w")
+  if f then
+    f:write(text)
+    f:close()
+  end
+  return path
+end
+
+--- Write an interactive launcher script that reads prompt from file and runs Claude.
+--- The prompt is read from a file to avoid shell quoting issues. Claude runs interactively
+--- (no -p flag) so the user can see it working and follow up.
+---@param cmd string[] Command flags (e.g., {"claude", "--max-turns", "10"})
+---@param prompt_file string Path to file containing the prompt text
+---@param sentinel string Path to sentinel file for exit code
+---@return string script_path
+function M.write_interactive_launcher(cmd, prompt_file, sentinel)
+  local script = vim.fn.tempname() .. ".okuban-launcher.sh"
+  local lines = { "#!/bin/sh" }
+  -- Read prompt from file (avoids all shell quoting issues)
+  table.insert(lines, string.format("PROMPT=$(cat %s)", vim.fn.shellescape(prompt_file)))
+  table.insert(lines, string.format("rm -f %s", vim.fn.shellescape(prompt_file)))
+  -- Build command: claude "$PROMPT" [flags...]
+  local parts = { vim.fn.shellescape(cmd[1]), '"$PROMPT"' }
+  for i = 2, #cmd do
+    table.insert(parts, vim.fn.shellescape(cmd[i]))
+  end
+  table.insert(lines, table.concat(parts, " "))
+  -- Write exit code to sentinel
+  table.insert(lines, string.format("echo $? > %s", vim.fn.shellescape(sentinel)))
+  -- Clean up script
+  table.insert(lines, string.format("rm -f %s", vim.fn.shellescape(script)))
+  local f = io.open(script, "w")
+  if not f then
+    return script
+  end
+  f:write(table.concat(lines, "\n") .. "\n")
+  f:close()
+  vim.fn.setfperm(script, "rwx------")
+  return script
+end
+
 --- Build a tmux split-window command with sentinel wrapper.
----@param opts table Split options: target, cwd, cmd, env, direction, size
+---@param opts table Split options: target, cwd, cmd, env, direction, size, prompt_file
 ---@return string[] tmux_cmd, string sentinel_path
 function M.build_split_command(opts)
   local sentinel = vim.fn.tempname() .. ".okuban-sentinel"
-  local script = M.write_launcher_script(opts.cmd, sentinel)
+  local script
+  if opts.prompt_file then
+    script = M.write_interactive_launcher(opts.cmd, opts.prompt_file, sentinel)
+  else
+    script = M.write_launcher_script(opts.cmd, sentinel)
+  end
   local direction = opts.direction or "h"
   local tmux_cmd = { "tmux", "split-window", "-" .. direction, "-d", "-P", "-F", "#{pane_id}", "-t", opts.target }
   if opts.size then
@@ -207,7 +259,7 @@ function M.build_split_command(opts)
 end
 
 --- Launch a command in a new tmux pane by splitting an existing one.
----@param opts table Pane opts: name, cwd, cmd, env, issue_number, direction, size, target
+---@param opts table Pane opts: name, cwd, cmd, env, issue_number, direction, size, target, prompt_file
 ---@return string|nil sentinel_path, string|nil pane_id, string|nil error
 function M.launch_pane(opts)
   local nvim_pane = M.get_nvim_pane()
@@ -227,6 +279,7 @@ function M.launch_pane(opts)
     target = split_target,
     cwd = opts.cwd,
     cmd = opts.cmd,
+    prompt_file = opts.prompt_file,
     env = opts.env,
     direction = opts.direction,
     size = opts.size,
