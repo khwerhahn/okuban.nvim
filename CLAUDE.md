@@ -104,7 +104,8 @@ This is an **open-source community plugin**. The primary goal is personal produc
 ### Dependencies
 - Neovim 0.10+ (for `vim.ui.open`, improved `vim.system()`, modern floating window APIs)
 - `gh` CLI — required (authentication, issue queries, label management)
-- `claude` CLI — optional (only needed for autonomous coding feature)
+- `claude` CLI — optional (only needed for autonomous coding feature, supports headless and tmux launch modes)
+- `tmux` — optional (only needed for tmux launch mode and agent teams)
 - No external UI dependencies — native Neovim floating windows only
 
 ### Authentication & Preflight
@@ -484,9 +485,12 @@ This plugin targets the Neovim open-source community. All documentation must be 
 4. Refresh/sync
 
 ### Phase 3: Autonomous Coding
-1. Launch Claude Code sessions from the board
+1. Launch Claude Code sessions from the board (headless or tmux mode)
 2. Git worktree creation and management
-3. Monitor running Claude sessions with live status
+3. Monitor running Claude sessions with live status (stream-json or sentinel polling)
+4. Session resume support (`claude --resume <session_id>`)
+5. Post-completion actions (auto-push, auto-PR)
+6. Experimental agent teams support (requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
 
 ### Phase 4: Polish & Community
 1. GitHub Actions CI (tests, StyLua, Luacheck)

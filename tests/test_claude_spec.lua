@@ -546,52 +546,142 @@ describe("okuban.claude", function()
     end)
   end)
 
-  describe("post-completion actions", function()
-    it("skips when auto_push and auto_pr are both false", function()
-      config.setup({ claude = { auto_push = false, auto_pr = false } })
-      local calls = helpers.mock_vim_system({})
-      claude._run_post_completion(42, "/tmp/wt", { status = "completed" })
-      assert.are.equal(0, #calls)
+  describe("agent_teams config", function()
+    it("defaults to disabled", function()
+      local cfg = config.get().claude
+      assert.is_table(cfg.agent_teams)
+      assert.is_false(cfg.agent_teams.enabled)
+      assert.are.equal("tmux", cfg.agent_teams.teammate_mode)
     end)
 
-    it("skips when session status is not completed", function()
-      config.setup({ claude = { auto_push = true } })
-      local calls = helpers.mock_vim_system({})
-      claude._run_post_completion(42, "/tmp/wt", { status = "failed" })
-      assert.are.equal(0, #calls)
+    it("can be enabled via setup", function()
+      config.setup({ claude = { agent_teams = { enabled = true } } })
+      local cfg = config.get().claude
+      assert.is_true(cfg.agent_teams.enabled)
+    end)
+  end)
+
+  describe("build_env", function()
+    it("returns empty table when agent_teams disabled", function()
+      local env = claude.build_env()
+      assert.are.equal(0, vim.tbl_count(env))
     end)
 
-    it("pushes branch when auto_push is true", function()
-      config.setup({ claude = { auto_push = true, auto_pr = false } })
-      local calls = helpers.mock_vim_system({
-        { code = 0, stdout = "" }, -- git push
-      })
-      claude._run_post_completion(42, "/tmp/wt", { status = "completed" })
+    it("sets CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS when enabled", function()
+      config.setup({ claude = { agent_teams = { enabled = true } } })
+      local env = claude.build_env()
+      assert.are.equal("1", env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)
+    end)
+  end)
 
-      vim.wait(1000, function()
-        return #calls > 0
+  describe("build_command with agent_teams", function()
+    it("includes --teammate-mode when agent_teams enabled", function()
+      config.setup({ claude = { agent_teams = { enabled = true, teammate_mode = "tmux" } } })
+      local cmd = claude.build_command("prompt", 42)
+      local found = false
+      for i, v in ipairs(cmd) do
+        if v == "--teammate-mode" and cmd[i + 1] == "tmux" then
+          found = true
+        end
+      end
+      assert.is_true(found, "expected --teammate-mode tmux")
+    end)
+
+    it("omits --teammate-mode when agent_teams disabled", function()
+      local cmd = claude.build_command("prompt", 42)
+      for _, v in ipairs(cmd) do
+        assert.are_not.equal("--teammate-mode", v)
+      end
+    end)
+
+    it("uses auto teammate_mode when configured", function()
+      config.setup({ claude = { agent_teams = { enabled = true, teammate_mode = "auto" } } })
+      local cmd = claude.build_command("prompt", 42)
+      local found_mode
+      for i, v in ipairs(cmd) do
+        if v == "--teammate-mode" then
+          found_mode = cmd[i + 1]
+        end
+      end
+      assert.are.equal("auto", found_mode)
+    end)
+  end)
+
+  describe("build_resume_command", function()
+    it("includes --resume with session_id", function()
+      local cmd = claude.build_resume_command("sess-abc-123")
+      assert.are.equal("claude", cmd[1])
+      assert.are.equal("--resume", cmd[2])
+      assert.are.equal("sess-abc-123", cmd[3])
+    end)
+
+    it("includes stream-json by default", function()
+      local cmd = claude.build_resume_command("sess-123")
+      local found = false
+      for i, v in ipairs(cmd) do
+        if v == "--output-format" and cmd[i + 1] == "stream-json" then
+          found = true
+        end
+      end
+      assert.is_true(found, "expected --output-format stream-json")
+    end)
+
+    it("omits stream-json when stream_json=false", function()
+      local cmd = claude.build_resume_command("sess-123", { stream_json = false })
+      for _, v in ipairs(cmd) do
+        assert.are_not.equal("--output-format", v)
+      end
+    end)
+  end)
+
+  describe("resume", function()
+    it("fails when no session exists", function()
+      local result_ok, result_err
+      claude.resume({ number = 42 }, function(ok, err)
+        result_ok = ok
+        result_err = err
       end)
-      assert.are.equal(1, #calls)
-      assert.is_truthy(vim.tbl_contains(calls[1].cmd, "push"))
-      assert.is_truthy(vim.tbl_contains(calls[1].cmd, "-C"))
-      assert.is_truthy(vim.tbl_contains(calls[1].cmd, "/tmp/wt"))
+      assert.is_false(result_ok)
+      assert.is_truthy(result_err:find("No session"))
     end)
 
-    it("creates PR when auto_pr is true", function()
-      config.setup({ claude = { auto_push = false, auto_pr = true } })
-      local calls = helpers.mock_vim_system({
-        { code = 0, stdout = "" }, -- git push
-        { code = 0, stdout = "feat/issue-42-claude\n" }, -- git branch --show-current
-        { code = 0, stdout = "" }, -- gh pr create
-      })
-      claude._run_post_completion(42, "/tmp/wt", { status = "completed" })
+    it("fails when session has no session_id", function()
+      local sessions = claude.get_all_sessions()
+      sessions[42] = { status = "completed", session_id = nil, worktree_path = "/tmp/wt" }
 
-      vim.wait(2000, function()
-        return #calls >= 3
+      local result_ok, result_err
+      claude.resume({ number = 42 }, function(ok, err)
+        result_ok = ok
+        result_err = err
       end)
-      assert.are.equal(3, #calls)
-      assert.is_truthy(vim.tbl_contains(calls[3].cmd, "pr"))
-      assert.is_truthy(vim.tbl_contains(calls[3].cmd, "create"))
+      assert.is_false(result_ok)
+      assert.is_truthy(result_err:find("No session"))
+    end)
+
+    it("fails when session is still running", function()
+      local sessions = claude.get_all_sessions()
+      sessions[42] = { status = "running", session_id = "sess-123", worktree_path = "/tmp/wt" }
+
+      local result_ok, result_err
+      claude.resume({ number = 42 }, function(ok, err)
+        result_ok = ok
+        result_err = err
+      end)
+      assert.is_false(result_ok)
+      assert.is_truthy(result_err:find("still running"))
+    end)
+
+    it("fails when no worktree path", function()
+      local sessions = claude.get_all_sessions()
+      sessions[42] = { status = "completed", session_id = "sess-123", worktree_path = nil }
+
+      local result_ok, result_err
+      claude.resume({ number = 42 }, function(ok, err)
+        result_ok = ok
+        result_err = err
+      end)
+      assert.is_false(result_ok)
+      assert.is_truthy(result_err:find("worktree"))
     end)
   end)
 
