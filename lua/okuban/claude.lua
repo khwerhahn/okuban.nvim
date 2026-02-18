@@ -154,7 +154,10 @@ function M.build_prompt(issue_number, context)
     end
     table.insert(parts, "")
   end
-  table.insert(parts, "Implement the changes described in this issue. Write tests if appropriate.")
+  table.insert(parts, "## Instructions")
+  table.insert(parts, "1. Read CLAUDE.md and explore the codebase to understand conventions and architecture.")
+  table.insert(parts, "2. If the issue is vague or missing acceptance criteria, state your assumptions before coding.")
+  table.insert(parts, "3. Implement the changes. Write tests if appropriate.")
   return table.concat(parts, "\n")
 end
 function M.build_system_prompt(issue_number)

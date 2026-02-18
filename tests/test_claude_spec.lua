@@ -317,6 +317,17 @@ describe("okuban.claude", function()
       local prompt = claude.build_prompt(42, { title = "T" })
       assert.is_falsy(prompt:find("commit"))
     end)
+
+    it("includes instructions to read CLAUDE.md and explore codebase", function()
+      local prompt = claude.build_prompt(1, { title = "T" })
+      assert.is_truthy(prompt:find("CLAUDE.md"))
+      assert.is_truthy(prompt:find("explore"))
+    end)
+
+    it("instructs to state assumptions when issue is vague", function()
+      local prompt = claude.build_prompt(1, { title = "T" })
+      assert.is_truthy(prompt:find("assumptions"))
+    end)
   end)
 
   describe("build_system_prompt", function()
