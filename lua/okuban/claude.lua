@@ -3,17 +3,13 @@ local utils = require("okuban.utils")
 
 local M = {}
 
--- Module-local state
 local active_sessions = {} ---@type table<integer, table>
 local claude_checked = nil ---@type boolean|nil nil=unchecked
 
---- Reset module state (for tests).
 function M._reset()
   active_sessions = {}
   claude_checked = nil
 end
-
---- Check if the `claude` CLI is installed (result is cached).
 ---@return boolean
 function M.is_available()
   if claude_checked ~= nil then
@@ -22,12 +18,7 @@ function M.is_available()
   claude_checked = vim.fn.executable("claude") == 1
   return claude_checked
 end
-
---- Lazy auth verification — runs `claude --version` to confirm CLI works.
---- Only checks once per session; subsequent calls invoke callback immediately.
----@param callback fun(ok: boolean, err: string|nil)
 function M.check_auth(callback)
-  -- is_available already checks executable; this validates it actually runs
   if not M.is_available() then
     callback(false, "claude CLI not found")
     return
@@ -43,9 +34,6 @@ function M.check_auth(callback)
     end)
   end)
 end
-
---- Get the git repo root path.
----@return string|nil
 function M.get_repo_root()
   local result = vim.system({ "git", "rev-parse", "--show-toplevel" }, { text = true }):wait()
   if result.code == 0 and result.stdout then
@@ -53,10 +41,6 @@ function M.get_repo_root()
   end
   return nil
 end
-
---- Compute the worktree path for a given issue number.
----@param issue_number integer
----@return string|nil path, string|nil error
 function M.worktree_path(issue_number)
   local cfg = config.get().claude
   if cfg.worktree_base_dir then
@@ -68,24 +52,17 @@ function M.worktree_path(issue_number)
     return nil, "Could not determine git repo root"
   end
 
-  -- Place worktrees in {repo-root}-worktrees/ (sibling of repo)
   return root .. "-worktrees/issue-" .. issue_number, nil
 end
-
---- Check if a worktree already exists for this issue.
----@param issue_number integer
----@return string|nil worktree_path Path if exists, nil otherwise
 function M.find_existing_worktree(issue_number)
   local wt_path = M.worktree_path(issue_number)
   if not wt_path then
     return nil
   end
-
   local result = vim.system({ "git", "worktree", "list", "--porcelain" }, { text = true }):wait()
   if result.code ~= 0 or not result.stdout then
     return nil
   end
-
   for line in result.stdout:gmatch("[^\n]+") do
     local path = line:match("^worktree (.+)")
     if path and path == wt_path then
@@ -95,10 +72,6 @@ function M.find_existing_worktree(issue_number)
 
   return nil
 end
-
---- Create a git worktree for the given issue (async).
----@param issue_number integer
----@param callback fun(ok: boolean, path: string|nil, err: string|nil)
 function M.create_worktree(issue_number, callback)
   local wt_path, err = M.worktree_path(issue_number)
   if not wt_path then
@@ -106,7 +79,6 @@ function M.create_worktree(issue_number, callback)
     return
   end
 
-  -- Check if already exists
   local existing = M.find_existing_worktree(issue_number)
   if existing then
     callback(true, existing, nil)
@@ -115,7 +87,6 @@ function M.create_worktree(issue_number, callback)
 
   local branch = "feat/issue-" .. issue_number .. "-claude"
 
-  -- Try creating worktree with new branch
   vim.system({ "git", "worktree", "add", "-b", branch, wt_path }, { text = true }, function(result)
     vim.schedule(function()
       if result.code == 0 then
@@ -123,7 +94,6 @@ function M.create_worktree(issue_number, callback)
         return
       end
 
-      -- Branch may already exist — try without -b
       vim.system({ "git", "worktree", "add", wt_path, branch }, { text = true }, function(result2)
         vim.schedule(function()
           if result2.code == 0 then
@@ -136,10 +106,6 @@ function M.create_worktree(issue_number, callback)
     end)
   end)
 end
-
---- Fetch issue context via gh CLI (async).
----@param issue_number integer
----@param callback fun(context: table|nil, err: string|nil)
 function M.fetch_issue_context(issue_number, callback)
   local cmd = { "gh", "issue", "view", tostring(issue_number), "--json", "number,title,body,labels,comments" }
   vim.system(cmd, { text = true }, function(result)
@@ -159,11 +125,6 @@ function M.fetch_issue_context(issue_number, callback)
     end)
   end)
 end
-
---- Build the prompt string for Claude from issue context.
----@param issue_number integer
----@param context table Issue context from fetch_issue_context
----@return string
 function M.build_prompt(issue_number, context)
   local parts = {
     "You are working on GitHub issue #" .. issue_number .. ".",
@@ -204,11 +165,6 @@ function M.build_prompt(issue_number, context)
 
   return table.concat(parts, "\n")
 end
-
---- Build a system prompt for Claude with workflow rules.
---- Injected via --append-system-prompt to keep the main prompt focused on issue context.
----@param issue_number integer
----@return string
 function M.build_system_prompt(issue_number)
   return "All commits must include 'Fixes #"
     .. issue_number
@@ -216,19 +172,14 @@ function M.build_system_prompt(issue_number)
     .. issue_number
     .. "' in the message. Follow the project's CLAUDE.md conventions."
 end
-
---- Build the claude CLI command arguments.
----@param prompt string
----@param issue_number integer Issue number for system prompt
----@return string[]
-function M.build_command(prompt, issue_number)
+function M.build_command(prompt, issue_number, opts)
+  opts = opts or {}
+  local stream_json = opts.stream_json ~= false
   local cfg = config.get().claude
   local cmd = {
     "claude",
     "-p",
     prompt,
-    "--output-format",
-    "stream-json",
     "--dangerously-skip-permissions",
     "--max-turns",
     tostring(cfg.max_turns),
@@ -236,19 +187,26 @@ function M.build_command(prompt, issue_number)
     tostring(cfg.max_budget_usd),
   }
 
-  -- Model override
+  if stream_json then
+    table.insert(cmd, "--output-format")
+    table.insert(cmd, "stream-json")
+  end
+
   if cfg.model then
     table.insert(cmd, "--model")
     table.insert(cmd, cfg.model)
   end
 
-  -- System prompt with commit conventions
   if issue_number then
     table.insert(cmd, "--append-system-prompt")
     table.insert(cmd, M.build_system_prompt(issue_number))
   end
 
-  -- Allowed tools
+  if cfg.agent_teams and cfg.agent_teams.enabled then
+    table.insert(cmd, "--teammate-mode")
+    table.insert(cmd, cfg.agent_teams.teammate_mode or "tmux")
+  end
+
   if cfg.allowed_tools and #cfg.allowed_tools > 0 then
     for _, tool in ipairs(cfg.allowed_tools) do
       table.insert(cmd, "--allowedTools")
@@ -258,10 +216,6 @@ function M.build_command(prompt, issue_number)
 
   return cmd
 end
-
---- Parse a single stream-json line into a structured event.
----@param line string
----@return table|nil event { type, subtype, ... } or nil if not valid
 function M.parse_stream_event(line)
   if not line or line == "" then
     return nil
@@ -274,67 +228,6 @@ function M.parse_stream_event(line)
 
   return data
 end
-
---- Run post-completion actions (auto_push, auto_pr) after a successful session.
----@param issue_number integer
----@param wt_path string Worktree path
----@param session table Session state
-local function run_post_completion(issue_number, wt_path, session)
-  local cfg = config.get().claude
-  if not cfg.auto_push and not cfg.auto_pr then
-    return
-  end
-  if session.status ~= "completed" then
-    return
-  end
-
-  -- Push the worktree branch
-  vim.system({ "git", "-C", wt_path, "push", "-u", "origin", "HEAD" }, { text = true }, function(result)
-    vim.schedule(function()
-      if result.code ~= 0 then
-        utils.notify("Auto-push failed for #" .. issue_number, vim.log.levels.WARN)
-        return
-      end
-      utils.notify("Auto-pushed branch for #" .. issue_number)
-
-      if cfg.auto_pr then
-        -- Get current branch name for PR
-        vim.system({ "git", "-C", wt_path, "branch", "--show-current" }, { text = true }, function(br)
-          vim.schedule(function()
-            local branch = br.code == 0 and vim.trim(br.stdout) or nil
-            if not branch then
-              return
-            end
-            local pr_cmd = {
-              "gh",
-              "pr",
-              "create",
-              "--head",
-              branch,
-              "--title",
-              "feat: address #" .. issue_number,
-              "--body",
-              "Automated PR from Claude session.\n\nFixes #" .. issue_number,
-            }
-            vim.system(pr_cmd, { text = true, cwd = wt_path }, function(pr_result)
-              vim.schedule(function()
-                if pr_result.code == 0 then
-                  utils.notify("Auto-created PR for #" .. issue_number)
-                else
-                  utils.notify("Auto-PR failed: " .. (pr_result.stderr or ""), vim.log.levels.WARN)
-                end
-              end)
-            end)
-          end)
-        end)
-      end
-    end)
-  end)
-end
-
---- Handle a stream event for a session (must be called from main loop via vim.schedule).
----@param issue_number integer
----@param event table Parsed stream event
 local function handle_event(issue_number, event)
   vim.schedule(function()
     local session = active_sessions[issue_number]
@@ -366,28 +259,17 @@ local function handle_event(issue_number, event)
           turns_str ~= "" and (", " .. turns_str) or ""
         )
       )
-
-      -- Run post-completion actions (auto_push, auto_pr)
-      if session.worktree_path then
-        run_post_completion(issue_number, session.worktree_path, session)
-      end
     end
   end)
 end
-
---- Launch an autonomous Claude session for an issue.
----@param issue table { number: integer, title: string }
----@param callback fun(ok: boolean, err: string|nil)|nil
 function M.launch(issue, callback)
   callback = callback or function() end
   local issue_number = issue.number
-
   if not M.is_available() then
     callback(false, "claude CLI not found — install it to use autonomous coding")
     return
   end
 
-  -- Check for existing running/initializing session
   local existing = active_sessions[issue_number]
   if existing and (existing.status == "running" or existing.status == "initializing") then
     utils.notify("Claude is already working on #" .. issue_number)
@@ -395,11 +277,9 @@ function M.launch(issue, callback)
     return
   end
 
-  -- Reserve the slot immediately to prevent race conditions
   active_sessions[issue_number] = { status = "initializing" }
   local stop = utils.spinner_start("Launching Claude for #" .. issue_number .. "...")
 
-  -- Auth check (lazy, first use)
   M.check_auth(function(auth_ok, auth_err)
     if not auth_ok then
       active_sessions[issue_number] = nil
@@ -409,7 +289,6 @@ function M.launch(issue, callback)
     end
 
     utils.spinner_update("Creating worktree...")
-    -- Create worktree
     M.create_worktree(issue_number, function(wt_ok, wt_path, wt_err)
       if not wt_ok or not wt_path then
         active_sessions[issue_number] = nil
@@ -419,7 +298,6 @@ function M.launch(issue, callback)
       end
 
       utils.spinner_update("Fetching issue context...")
-      -- Fetch issue context
       M.fetch_issue_context(issue_number, function(context, ctx_err)
         if not context then
           active_sessions[issue_number] = nil
@@ -429,117 +307,194 @@ function M.launch(issue, callback)
         end
 
         local prompt = M.build_prompt(issue_number, context)
+        local cfg = config.get().claude
         local cmd = M.build_command(prompt, issue_number)
-
-        -- Launch via jobstart for streaming stdout
-        -- jobstart on_stdout receives data as a list of lines split by newlines.
-        -- The last element may be incomplete (no trailing newline).
-        local buffer = ""
-        local job_id = vim.fn.jobstart(cmd, {
-          cwd = wt_path,
-          on_stdout = function(_, data, _)
-            if not data or #data == 0 then
-              return
-            end
-            -- First chunk continues any incomplete line from previous call
-            data[1] = buffer .. data[1]
-            -- Process all complete lines (all but the last)
-            for i = 1, #data - 1 do
-              local line = data[i]
-              if line and line ~= "" then
-                local event = M.parse_stream_event(line)
-                if event then
-                  handle_event(issue_number, event)
-                end
-              end
-            end
-            -- Last element may be incomplete — save for next callback
-            buffer = data[#data] or ""
-          end,
-          on_stderr = function(_, data, _)
-            if not data then
-              return
-            end
-            for _, line in ipairs(data) do
-              if line and line ~= "" then
-                vim.schedule(function()
-                  utils.notify("claude: " .. line, vim.log.levels.DEBUG)
-                end)
-              end
-            end
-          end,
-          on_exit = function(_, exit_code, _)
-            vim.schedule(function()
-              local session = active_sessions[issue_number]
-              if session and session.status == "running" then
-                -- If we didn't get a result event, mark based on exit code
-                session.status = (exit_code == 0) and "completed" or "failed"
-                utils.notify(
-                  string.format("Claude finished #%d (%s, exit %d)", issue_number, session.status, exit_code)
-                )
-                -- Run post-completion actions (auto_push, auto_pr)
-                if session.worktree_path then
-                  run_post_completion(issue_number, session.worktree_path, session)
-                end
-              end
-            end)
-          end,
-        })
-
-        if job_id <= 0 then
-          active_sessions[issue_number] = nil
-          stop("Failed to start claude process")
-          callback(false, "Failed to start claude process")
-          return
+        local launch_mode = cfg.launch_mode
+        if cfg.agent_teams and cfg.agent_teams.enabled then
+          launch_mode = "tmux"
         end
 
-        active_sessions[issue_number] = {
-          job_id = job_id,
-          session_id = nil,
-          worktree_path = wt_path,
-          status = "running",
-          turns = 0,
-          cost_usd = nil,
-          num_turns = nil,
-          started_at = os.time(),
-        }
-
-        stop("Claude started on #" .. issue_number)
-        callback(true, nil)
+        if launch_mode == "tmux" then
+          M._launch_tmux(issue_number, cmd, wt_path, stop, callback)
+        else
+          M._launch_headless(issue_number, cmd, wt_path, stop, callback)
+        end
       end)
     end)
   end)
 end
+function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
+  local buffer = ""
+  local job_id = vim.fn.jobstart(cmd, {
+    cwd = wt_path,
+    on_stdout = function(_, data, _)
+      if not data or #data == 0 then
+        return
+      end
+      data[1] = buffer .. data[1]
+      for i = 1, #data - 1 do
+        local line = data[i]
+        if line and line ~= "" then
+          local event = M.parse_stream_event(line)
+          if event then
+            handle_event(issue_number, event)
+          end
+        end
+      end
+      buffer = data[#data] or ""
+    end,
+    on_stderr = function(_, data, _)
+      if not data then
+        return
+      end
+      for _, line in ipairs(data) do
+        if line and line ~= "" then
+          vim.schedule(function()
+            utils.notify("claude: " .. line, vim.log.levels.DEBUG)
+          end)
+        end
+      end
+    end,
+    on_exit = function(_, exit_code, _)
+      vim.schedule(function()
+        local session = active_sessions[issue_number]
+        if session and session.status == "running" then
+          session.status = (exit_code == 0) and "completed" or "failed"
+          utils.notify(string.format("Claude finished #%d (%s, exit %d)", issue_number, session.status, exit_code))
+        end
+      end)
+    end,
+  })
 
---- Get session info for a specific issue.
----@param issue_number integer
----@return table|nil session
+  if job_id <= 0 then
+    active_sessions[issue_number] = nil
+    stop("Failed to start claude process")
+    callback(false, "Failed to start claude process")
+    return
+  end
+
+  active_sessions[issue_number] = {
+    job_id = job_id,
+    session_id = nil,
+    worktree_path = wt_path,
+    status = "running",
+    turns = 0,
+    cost_usd = nil,
+    num_turns = nil,
+    started_at = os.time(),
+  }
+
+  stop("Claude started on #" .. issue_number)
+  callback(true, nil)
+end
+function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
+  local tmux = require("okuban.tmux")
+  if not tmux.is_available() then
+    active_sessions[issue_number] = nil
+    stop("tmux not available — not inside a tmux session")
+    callback(false, "tmux not available")
+    return
+  end
+
+  local prompt = headless_cmd[3]
+  local tmux_cmd = M.build_command(prompt, issue_number, { stream_json = false })
+
+  local sentinel = tmux.launch_window({
+    name = "claude-#" .. issue_number,
+    cwd = wt_path,
+    cmd = tmux_cmd,
+    env = M.build_env(),
+  })
+
+  if not sentinel then
+    active_sessions[issue_number] = nil
+    stop("Failed to launch tmux window")
+    callback(false, "Failed to launch tmux window")
+    return
+  end
+
+  active_sessions[issue_number] = {
+    job_id = nil,
+    session_id = nil,
+    worktree_path = wt_path,
+    status = "running",
+    turns = 0,
+    cost_usd = nil,
+    num_turns = nil,
+    started_at = os.time(),
+    sentinel_path = sentinel,
+  }
+
+  tmux.poll_sentinel(sentinel, 2000, function(exit_code)
+    local session = active_sessions[issue_number]
+    if session then
+      session.status = (exit_code == 0) and "completed" or "failed"
+      utils.notify(string.format("Claude finished #%d (%s, exit %d)", issue_number, session.status, exit_code))
+    end
+  end)
+
+  stop("Claude started in tmux for #" .. issue_number)
+  callback(true, nil)
+end
+function M.build_env()
+  local cfg = config.get().claude
+  local env = {}
+  if cfg.agent_teams and cfg.agent_teams.enabled then
+    env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"
+  end
+  return env
+end
 function M.get_session(issue_number)
   return active_sessions[issue_number]
 end
-
---- Get all active sessions.
----@return table<integer, table>
 function M.get_all_sessions()
   return active_sessions
 end
+function M.build_resume_command(session_id, opts)
+  opts = opts or {}
+  local cmd = { "claude", "--resume", session_id }
+  if opts.stream_json ~= false then
+    table.insert(cmd, "--output-format")
+    table.insert(cmd, "stream-json")
+  end
+  return cmd
+end
+function M.resume(issue, callback)
+  callback = callback or function() end
+  local issue_number = issue.number
+  local session = active_sessions[issue_number]
+  if not session or not session.session_id then
+    callback(false, "No session to resume for #" .. issue_number)
+    return
+  end
+  if session.status == "running" or session.status == "initializing" then
+    callback(false, "Session is still running for #" .. issue_number)
+    return
+  end
+  local wt_path = session.worktree_path
+  if not wt_path then
+    callback(false, "No worktree path for session #" .. issue_number)
+    return
+  end
 
---- Stop a running Claude session.
----@param issue_number integer
----@return boolean success
+  local is_tmux = config.get().claude.launch_mode == "tmux"
+  local cmd = M.build_resume_command(session.session_id, { stream_json = not is_tmux })
+  local noop_stop = function(msg)
+    if msg then
+      utils.notify(msg)
+    end
+  end
+  M._launch_headless(issue_number, cmd, wt_path, noop_stop, callback)
+end
 function M.stop(issue_number)
   local session = active_sessions[issue_number]
   if not session or session.status ~= "running" then
     return false
   end
-
   vim.fn.jobstop(session.job_id)
   session.status = "failed"
   utils.notify("Stopped Claude session for #" .. issue_number)
   return true
 end
-
---- Exposed for testing only.
-M._run_post_completion = run_post_completion
 
 return M

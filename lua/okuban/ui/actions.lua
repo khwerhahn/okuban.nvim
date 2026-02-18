@@ -126,23 +126,47 @@ function M._build_actions(issue, board)
     if claude_cfg.enabled then
       local claude_mod = require("okuban.claude")
       if claude_mod.is_available() then
-        table.insert(actions, {
-          key = "x",
-          label = "Code with Claude",
-          callback = function()
-            M.close()
-            local session = claude_mod.get_session(issue.number)
-            if session and session.status == "running" then
-              utils.notify("Claude is already working on #" .. issue.number)
-              return
-            end
-            claude_mod.launch(issue, function(ok, err)
-              if not ok then
-                utils.notify("Failed: " .. (err or "unknown"), vim.log.levels.ERROR)
-              end
-            end)
-          end,
-        })
+        local session = claude_mod.get_session(issue.number)
+
+        if session and session.status == "running" then
+          -- Running: show status info, no action
+          table.insert(actions, {
+            key = "x",
+            label = "Claude is running...",
+            callback = function()
+              M.close()
+              utils.notify("Claude is working on #" .. issue.number)
+            end,
+          })
+        elseif session and session.session_id and (session.status == "completed" or session.status == "failed") then
+          -- Completed/Failed with session_id: offer resume
+          table.insert(actions, {
+            key = "x",
+            label = "Resume Claude session",
+            callback = function()
+              M.close()
+              claude_mod.resume(issue, function(ok, err)
+                if not ok then
+                  utils.notify("Resume failed: " .. (err or "unknown"), vim.log.levels.ERROR)
+                end
+              end)
+            end,
+          })
+        else
+          -- No session: offer launch
+          table.insert(actions, {
+            key = "x",
+            label = "Code with Claude",
+            callback = function()
+              M.close()
+              claude_mod.launch(issue, function(ok, err)
+                if not ok then
+                  utils.notify("Failed: " .. (err or "unknown"), vim.log.levels.ERROR)
+                end
+              end)
+            end,
+          })
+        end
       end
     end
   end
