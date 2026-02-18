@@ -59,12 +59,10 @@ function M.find_existing_worktree(issue_number)
   if not wt_path then
     return nil
   end
-
   local result = vim.system({ "git", "worktree", "list", "--porcelain" }, { text = true }):wait()
   if result.code ~= 0 or not result.stdout then
     return nil
   end
-
   for line in result.stdout:gmatch("[^\n]+") do
     local path = line:match("^worktree (.+)")
     if path and path == wt_path then
@@ -74,7 +72,6 @@ function M.find_existing_worktree(issue_number)
 
   return nil
 end
-
 function M.create_worktree(issue_number, callback)
   local wt_path, err = M.worktree_path(issue_number)
   if not wt_path then
@@ -109,7 +106,6 @@ function M.create_worktree(issue_number, callback)
     end)
   end)
 end
-
 function M.fetch_issue_context(issue_number, callback)
   local cmd = { "gh", "issue", "view", tostring(issue_number), "--json", "number,title,body,labels,comments" }
   vim.system(cmd, { text = true }, function(result)
@@ -129,7 +125,6 @@ function M.fetch_issue_context(issue_number, callback)
     end)
   end)
 end
-
 function M.build_prompt(issue_number, context)
   local parts = {
     "You are working on GitHub issue #" .. issue_number .. ".",
@@ -170,7 +165,6 @@ function M.build_prompt(issue_number, context)
 
   return table.concat(parts, "\n")
 end
-
 function M.build_system_prompt(issue_number)
   return "All commits must include 'Fixes #"
     .. issue_number
@@ -178,7 +172,6 @@ function M.build_system_prompt(issue_number)
     .. issue_number
     .. "' in the message. Follow the project's CLAUDE.md conventions."
 end
-
 function M.build_command(prompt, issue_number, opts)
   opts = opts or {}
   local stream_json = opts.stream_json ~= false
@@ -209,6 +202,11 @@ function M.build_command(prompt, issue_number, opts)
     table.insert(cmd, M.build_system_prompt(issue_number))
   end
 
+  if cfg.agent_teams and cfg.agent_teams.enabled then
+    table.insert(cmd, "--teammate-mode")
+    table.insert(cmd, cfg.agent_teams.teammate_mode or "tmux")
+  end
+
   if cfg.allowed_tools and #cfg.allowed_tools > 0 then
     for _, tool in ipairs(cfg.allowed_tools) do
       table.insert(cmd, "--allowedTools")
@@ -218,7 +216,6 @@ function M.build_command(prompt, issue_number, opts)
 
   return cmd
 end
-
 function M.parse_stream_event(line)
   if not line or line == "" then
     return nil
@@ -231,7 +228,6 @@ function M.parse_stream_event(line)
 
   return data
 end
-
 local function handle_event(issue_number, event)
   vim.schedule(function()
     local session = active_sessions[issue_number]
@@ -266,11 +262,9 @@ local function handle_event(issue_number, event)
     end
   end)
 end
-
 function M.launch(issue, callback)
   callback = callback or function() end
   local issue_number = issue.number
-
   if not M.is_available() then
     callback(false, "claude CLI not found — install it to use autonomous coding")
     return
@@ -313,8 +307,12 @@ function M.launch(issue, callback)
         end
 
         local prompt = M.build_prompt(issue_number, context)
+        local cfg = config.get().claude
         local cmd = M.build_command(prompt, issue_number)
-        local launch_mode = config.get().claude.launch_mode
+        local launch_mode = cfg.launch_mode
+        if cfg.agent_teams and cfg.agent_teams.enabled then
+          launch_mode = "tmux"
+        end
 
         if launch_mode == "tmux" then
           M._launch_tmux(issue_number, cmd, wt_path, stop, callback)
@@ -325,7 +323,6 @@ function M.launch(issue, callback)
     end)
   end)
 end
-
 function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
   local buffer = ""
   local job_id = vim.fn.jobstart(cmd, {
@@ -390,7 +387,6 @@ function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
   stop("Claude started on #" .. issue_number)
   callback(true, nil)
 end
-
 function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
   local tmux = require("okuban.tmux")
   if not tmux.is_available() then
@@ -407,7 +403,7 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
     name = "claude-#" .. issue_number,
     cwd = wt_path,
     cmd = tmux_cmd,
-    env = {},
+    env = M.build_env(),
   })
 
   if not sentinel then
@@ -440,7 +436,14 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
   stop("Claude started in tmux for #" .. issue_number)
   callback(true, nil)
 end
-
+function M.build_env()
+  local cfg = config.get().claude
+  local env = {}
+  if cfg.agent_teams and cfg.agent_teams.enabled then
+    env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"
+  end
+  return env
+end
 function M.get_session(issue_number)
   return active_sessions[issue_number]
 end
@@ -456,7 +459,6 @@ function M.build_resume_command(session_id, opts)
   end
   return cmd
 end
-
 function M.resume(issue, callback)
   callback = callback or function() end
   local issue_number = issue.number
@@ -484,13 +486,11 @@ function M.resume(issue, callback)
   end
   M._launch_headless(issue_number, cmd, wt_path, noop_stop, callback)
 end
-
 function M.stop(issue_number)
   local session = active_sessions[issue_number]
   if not session or session.status ~= "running" then
     return false
   end
-
   vim.fn.jobstop(session.job_id)
   session.status = "failed"
   utils.notify("Stopped Claude session for #" .. issue_number)

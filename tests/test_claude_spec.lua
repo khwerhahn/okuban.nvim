@@ -546,6 +546,67 @@ describe("okuban.claude", function()
     end)
   end)
 
+  describe("agent_teams config", function()
+    it("defaults to disabled", function()
+      local cfg = config.get().claude
+      assert.is_table(cfg.agent_teams)
+      assert.is_false(cfg.agent_teams.enabled)
+      assert.are.equal("tmux", cfg.agent_teams.teammate_mode)
+    end)
+
+    it("can be enabled via setup", function()
+      config.setup({ claude = { agent_teams = { enabled = true } } })
+      local cfg = config.get().claude
+      assert.is_true(cfg.agent_teams.enabled)
+    end)
+  end)
+
+  describe("build_env", function()
+    it("returns empty table when agent_teams disabled", function()
+      local env = claude.build_env()
+      assert.are.equal(0, vim.tbl_count(env))
+    end)
+
+    it("sets CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS when enabled", function()
+      config.setup({ claude = { agent_teams = { enabled = true } } })
+      local env = claude.build_env()
+      assert.are.equal("1", env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)
+    end)
+  end)
+
+  describe("build_command with agent_teams", function()
+    it("includes --teammate-mode when agent_teams enabled", function()
+      config.setup({ claude = { agent_teams = { enabled = true, teammate_mode = "tmux" } } })
+      local cmd = claude.build_command("prompt", 42)
+      local found = false
+      for i, v in ipairs(cmd) do
+        if v == "--teammate-mode" and cmd[i + 1] == "tmux" then
+          found = true
+        end
+      end
+      assert.is_true(found, "expected --teammate-mode tmux")
+    end)
+
+    it("omits --teammate-mode when agent_teams disabled", function()
+      local cmd = claude.build_command("prompt", 42)
+      for _, v in ipairs(cmd) do
+        assert.are_not.equal("--teammate-mode", v)
+      end
+    end)
+
+    it("uses auto teammate_mode when configured", function()
+      config.setup({ claude = { agent_teams = { enabled = true, teammate_mode = "auto" } } })
+      local cmd = claude.build_command("prompt", 42)
+      local found_mode
+      for i, v in ipairs(cmd) do
+        if v == "--teammate-mode" then
+          found_mode = cmd[i + 1]
+        end
+      end
+      assert.are.equal("auto", found_mode)
+    end)
+  end)
+
   describe("build_resume_command", function()
     it("includes --resume with session_id", function()
       local cmd = claude.build_resume_command("sess-abc-123")

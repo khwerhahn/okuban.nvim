@@ -20,6 +20,10 @@ local M = {}
 ---@field refresh string
 ---@field help string
 
+---@class OkubanAgentTeamsConfig
+---@field enabled boolean EXPERIMENTAL: Enable agent teams (default: false)
+---@field teammate_mode "tmux"|"auto" Teammate mode (default: "tmux")
+
 ---@class OkubanClaudeConfig
 ---@field enabled boolean
 ---@field max_budget_usd number
@@ -30,6 +34,7 @@ local M = {}
 ---@field worktree_base_dir string|nil
 ---@field auto_push boolean
 ---@field auto_pr boolean
+---@field agent_teams OkubanAgentTeamsConfig
 
 ---@class OkubanProjectConfig
 ---@field number integer|nil Project number (nil = show picker on first :Okuban)
@@ -130,6 +135,10 @@ local defaults = {
     worktree_base_dir = nil,
     auto_push = false,
     auto_pr = false,
+    agent_teams = {
+      enabled = false,
+      teammate_mode = "tmux",
+    },
   },
   triage = {
     enabled = true,
