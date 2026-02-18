@@ -158,11 +158,15 @@ function M.build_prompt(issue_number, context)
   return table.concat(parts, "\n")
 end
 function M.build_system_prompt(issue_number)
-  return "All commits must include 'Fixes #"
+  return "RULES: "
+    .. "1) All commits must include 'Fixes #"
     .. issue_number
     .. "' or 'Refs #"
     .. issue_number
-    .. "' in the message. Follow the project's CLAUDE.md conventions."
+    .. "'. "
+    .. "2) Work on a feature branch, NEVER commit to main. "
+    .. "3) If creating issues, ALWAYS add an okuban: kanban label (okuban:backlog, okuban:todo, etc). "
+    .. "4) Read CLAUDE.md before starting — it has project conventions you MUST follow."
 end
 local function append_common_flags(cmd, issue_number, cfg)
   vim.list_extend(cmd, { "--dangerously-skip-permissions", "--max-turns", tostring(cfg.max_turns) })

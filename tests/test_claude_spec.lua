@@ -334,6 +334,16 @@ describe("okuban.claude", function()
       local sp = claude.build_system_prompt(1)
       assert.is_truthy(sp:find("CLAUDE.md"))
     end)
+
+    it("requires kanban labels on new issues", function()
+      local sp = claude.build_system_prompt(10)
+      assert.is_truthy(sp:find("okuban:"))
+    end)
+
+    it("prohibits committing to main", function()
+      local sp = claude.build_system_prompt(10)
+      assert.is_truthy(sp:find("NEVER commit to main"))
+    end)
   end)
 
   describe("session state", function()
