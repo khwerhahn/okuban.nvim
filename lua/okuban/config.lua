@@ -20,6 +20,11 @@ local M = {}
 ---@field refresh string
 ---@field help string
 
+---@class OkubanTmuxSplitConfig
+---@field target "auto"|"self"|"other" Which pane to split (default: "auto")
+---@field direction "h"|"v" Split direction: h=side-by-side, v=top-bottom (default: "h")
+---@field size string|nil Size for new pane (e.g., "50%"), nil=tmux default
+
 ---@class OkubanAgentTeamsConfig
 ---@field enabled boolean EXPERIMENTAL: Enable agent teams (default: false)
 ---@field teammate_mode "tmux"|"auto" Teammate mode (default: "tmux")
@@ -29,12 +34,13 @@ local M = {}
 ---@field max_budget_usd number
 ---@field max_turns integer
 ---@field model string|nil Override Claude model (e.g. "sonnet", "opus")
----@field launch_mode "headless"|"tmux" Launch mode: "headless" (jobstart) or "tmux" (new window)
+---@field launch_mode "auto"|"headless"|"tmux" Launch mode: "auto" (tmux if available), "headless", or "tmux"
 ---@field allowed_tools string[]
 ---@field worktree_base_dir string|nil
 ---@field auto_push boolean
 ---@field auto_pr boolean
 ---@field agent_teams OkubanAgentTeamsConfig
+---@field tmux_split OkubanTmuxSplitConfig
 
 ---@class OkubanProjectConfig
 ---@field number integer|nil Project number (nil = show picker on first :Okuban)
@@ -122,7 +128,7 @@ local defaults = {
     max_budget_usd = 5.00,
     max_turns = 30,
     model = nil,
-    launch_mode = "headless",
+    launch_mode = "auto",
     allowed_tools = {
       "Bash(git:*)",
       "Bash(gh:*)",
@@ -138,6 +144,11 @@ local defaults = {
     agent_teams = {
       enabled = false,
       teammate_mode = "tmux",
+    },
+    tmux_split = {
+      target = "auto",
+      direction = "h",
+      size = nil,
     },
   },
   triage = {
