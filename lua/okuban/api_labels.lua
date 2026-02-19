@@ -353,7 +353,7 @@ function M.fetch_sub_issues(parent_number, callback)
     end
 
     local tmpl = '{ repository(owner: "%s", name: "%s") {'
-      .. " issue(number: %d) { subIssues(first: 50)"
+      .. " issue(number: %d) { subIssues(first: 100)"
       .. " { nodes { number title state body } } } } }"
     local query = string.format(tmpl, owner, name, parent_number)
 
