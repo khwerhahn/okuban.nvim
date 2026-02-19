@@ -517,6 +517,54 @@ describe("okuban.api fetch", function()
       assert.is_not_nil(result)
       assert.equals(0, #result)
     end)
+
+    it("sorts open issues first, then by number descending", function()
+      local graphql_response = vim.json.encode({
+        data = {
+          repository = {
+            issue = {
+              subIssues = {
+                nodes = {
+                  { number = 10, title = "Closed old", state = "CLOSED", body = "" },
+                  { number = 15, title = "Open new", state = "OPEN", body = "" },
+                  { number = 12, title = "Open old", state = "OPEN", body = "" },
+                  { number = 20, title = "Closed new", state = "CLOSED", body = "" },
+                },
+              },
+            },
+          },
+        },
+      })
+      helpers.mock_vim_system({
+        { code = 0, stdout = "alice|myrepo" },
+        { code = 0, stdout = graphql_response },
+      })
+
+      api._reset_repo_info()
+      local done = false
+      local result = nil
+      api.fetch_sub_issues(1, function(subs)
+        done = true
+        result = subs
+      end)
+
+      vim.wait(2000, function()
+        return done
+      end)
+
+      assert.is_not_nil(result)
+      assert.equals(4, #result)
+      -- Open issues first, descending by number
+      assert.equals(15, result[1].number)
+      assert.equals("OPEN", result[1].state)
+      assert.equals(12, result[2].number)
+      assert.equals("OPEN", result[2].state)
+      -- Closed issues after, descending by number
+      assert.equals(20, result[3].number)
+      assert.equals("CLOSED", result[3].state)
+      assert.equals(10, result[4].number)
+      assert.equals("CLOSED", result[4].state)
+    end)
   end)
 
   describe("create_all_labels", function()

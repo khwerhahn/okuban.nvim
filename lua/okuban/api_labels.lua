@@ -389,6 +389,15 @@ function M.fetch_sub_issues(parent_number, callback)
             node.body = nil
           end
         end
+        -- Sort: open issues first, then by issue number descending (newest first)
+        table.sort(nodes, function(a, b)
+          local a_open = a.state ~= "CLOSED" and a.state ~= "closed"
+          local b_open = b.state ~= "CLOSED" and b.state ~= "closed"
+          if a_open ~= b_open then
+            return a_open
+          end
+          return a.number > b.number
+        end)
         callback(nodes)
       end)
     end)
