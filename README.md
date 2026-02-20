@@ -25,6 +25,18 @@ Existing solutions either:
 
 okuban.nvim takes a different approach: your issues **are** your board. Add labels, open Neovim, and you have a kanban.
 
+## Philosophy
+
+okuban.nvim is **opinionated by design**. It was born from a specific workflow — Neovim, tmux, and Claude Code in a terminal — and the defaults reflect that.
+
+**Key design decisions:**
+- **Labels over Projects** — Zero setup. Works with any GitHub repo. No board configuration needed. GitHub Projects v2 is supported as an opt-in upgrade path for growing teams.
+- **Terminal-native** — Built for developers who live in the terminal. No browser, no Electron, no mouse required.
+- **Claude Code integration** — First-class support for AI-assisted coding directly from the board. Optional — the kanban works fully without it.
+- **Everything configurable** — Columns, labels, keymaps, polling intervals, split directions — the defaults are intentional, but nothing is locked down.
+
+If this workflow resonates with you, okuban will feel like home. If not, the core kanban (issues + labels + Neovim) works great on its own.
+
 ## How It Works
 
 Issues are sorted into columns based on labels. The plugin ships with an opinionated default label set (fully configurable):
@@ -75,6 +87,16 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
     { "<leader>bp", "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
     { "<leader>bm", "<cmd>OkubanMigrate project<cr>", desc = "Migrate labels to project" },
   },
+  opts = {},
+}
+```
+
+The simplest setup is just `opts = {}` — the `keys` and `cmd` entries above are optional (they enable lazy-loading and global keymaps). If you prefer minimal config:
+
+```lua
+{
+  "khwerhahn/okuban.nvim",
+  cmd = "Okuban",
   opts = {},
 }
 ```
@@ -258,6 +280,7 @@ vim.api.nvim_set_hl(0, "OkubanCardActive", { fg = "#ff9e64", bold = true })
 | `:OkubanSource labels` | Switch to label-based board |
 | `:OkubanSource project [N]` | Switch to project-based board (picker if no number) |
 | `:OkubanMigrate project [N]` | Copy label board positions into a GitHub Project |
+| `:OkubanTriage` | Interactively assign unsorted issues to kanban columns |
 
 ## Keybindings
 
@@ -489,7 +512,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
 
 ## Contributing with Claude Code
 
-This project ships with a Claude Code workflow. When you clone or fork the repo, you get:
+This repo includes a `.claude/` directory with workflow automation for contributors using [Claude Code](https://claude.ai/code). **If you're not using Claude Code, you can ignore this entirely — the plugin and contribution process work the same way.**
+
+When you clone or fork the repo with Claude Code installed, you automatically get:
 
 **Custom skills** (slash commands):
 | Command | What it does |
@@ -510,6 +535,7 @@ See [docs/claude-code-workflow.md](docs/claude-code-workflow.md) for the full gu
 - [Feature Architecture](docs/feature-architecture.md) — Detailed design for all core features
 - [Label Setup](docs/label-setup.md) — Full label reference with colors, descriptions, and `gh` commands
 - [Claude Code Workflow](docs/claude-code-workflow.md) — How to use Claude Code with this project
+- [Project Architecture & Decisions](CLAUDE.md) — Design philosophy, label system rationale, technical architecture
 
 ## License
 

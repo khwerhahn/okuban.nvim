@@ -80,6 +80,10 @@ Then run `:OkubanSetup` to create the kanban labels on your repo.
   match the column name. This is a one-time helper — labels are not removed.
   Requires `project` scope: `gh auth refresh -s project`
 
+:OkubanTriage                                              *:OkubanTriage*
+  Interactively assign unsorted issues to kanban columns. Opens a picker
+  for each unsorted issue showing the available columns.
+
 ==============================================================================
 5. KEYBINDINGS                                           *okuban-keybindings*
 
@@ -164,6 +168,8 @@ Pass options to `setup()`: >lua
       enabled = true,
       max_budget_usd = 5.00,
       max_turns = 30,
+      model = nil,
+      launch_mode = "auto",
       allowed_tools = {
         "Bash(git:*)",
         "Bash(gh:*)",
@@ -176,6 +182,15 @@ Pass options to `setup()`: >lua
       worktree_base_dir = nil,
       auto_push = false,
       auto_pr = false,
+      tmux_split = {
+        target = "auto",
+        direction = "v",
+        size = nil,
+      },
+      agent_teams = {
+        enabled = false,
+        teammate_mode = "tmux",
+      },
     },
   })
 <
@@ -266,11 +281,24 @@ claude                                               *okuban-config-claude*
   - `enabled` (boolean): Enable the Code action. Default: true.
   - `max_budget_usd` (number): Spending cap per session. Default: 5.00.
   - `max_turns` (integer): Max API turns per session. Default: 30.
+  - `model` (string|nil): Override model (e.g. "sonnet", "opus").
+    Default: nil (uses Claude's default).
+  - `launch_mode` (string): How to launch Claude sessions.
+    "auto" (tmux if available, else headless), "headless", or "tmux".
+    Default: "auto".
   - `allowed_tools` (string[]): Tools the Claude session can use.
   - `worktree_base_dir` (string|nil): Base directory for worktrees.
     Default: nil (auto — `../repo-worktrees/`).
   - `auto_push` (boolean): Push branch on completion. Default: false.
   - `auto_pr` (boolean): Create PR on completion. Default: false.
+  - `tmux_split` (table): Tmux pane splitting options.
+    - `target` (string): "auto" | "self" | "other". Default: "auto".
+    - `direction` (string): "v" (top/bottom) | "h" (side-by-side).
+      Default: "v".
+    - `size` (string|nil): Pane size (e.g. "50%"). Default: nil.
+  - `agent_teams` (table): EXPERIMENTAL Claude agent teams.
+    - `enabled` (boolean): Default: false.
+    - `teammate_mode` (string): "tmux" or "auto". Default: "tmux".
 
 Highlight Groups ~
                                                     *okuban-highlight-groups*
@@ -418,6 +446,9 @@ See |okuban-config-columns|.
 
 ==============================================================================
 10. TROUBLESHOOTING                                  *okuban-troubleshooting*
+
+Run `:checkhealth okuban` for a quick diagnostic of your setup (Neovim
+version, gh auth, labels, optional tools).
 
 "gh CLI not found" ~
   Install from https://cli.github.com, then run `gh auth login`.

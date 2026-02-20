@@ -77,6 +77,10 @@ nvim --headless -c "PlenaryBustedFile tests/test_config_spec.lua"
 
 ## Pull Request Process
 
+> **Note:** You don't need to create an issue to contribute. The issue-driven workflow
+> below is used by the maintainer and Claude Code automation, but regular contributors
+> can simply submit a PR. The commit hooks in `.claude/` only activate when using Claude Code.
+
 ### 1. Find or Create an Issue
 
 All work must be tracked through a GitHub issue. Check [existing issues](https://github.com/khwerhahn/okuban.nvim/issues) or create a new one.
