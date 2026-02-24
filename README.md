@@ -225,6 +225,8 @@ require("okuban").setup({
     max_turns = 30,             -- max agentic turns per session
     model = nil,                -- override model (e.g. "sonnet", "opus")
     launch_mode = "auto",       -- "auto" | "headless" | "tmux"
+    max_concurrent_sessions = 3, -- max simultaneous Claude sessions
+    launch_stagger_ms = 3000,   -- delay (ms) between consecutive launches
     allowed_tools = {
       "Bash(git:*)",
       "Bash(gh:*)",
@@ -488,6 +490,21 @@ Install Claude Code from https://claude.ai/code. This is optional — the board 
 
 **"tmux not available"**
 Claude defaults to headless mode if you're not inside tmux. To use interactive mode with a visible Claude pane, start Neovim inside a tmux session. You can also force headless mode: `claude = { launch_mode = "headless" }`.
+
+**Claude Code sessions hang or freeze (SQLite contention)**
+This is a known upstream issue in Claude Code. Each `claude` process shares a SQLite database (`~/.claude/__store.db`), and Claude Code currently uses `journal_mode=DELETE` with `busy_timeout=0`, which means concurrent writers can deadlock. This affects any scenario where multiple Claude processes run simultaneously — including okuban-launched sessions alongside an interactive Claude Code session.
+
+**Mitigation:** okuban staggers session launches (3s delay between each) and caps concurrent sessions at 3 by default. You can tune these:
+```lua
+require("okuban").setup({
+  claude = {
+    max_concurrent_sessions = 2,  -- lower if you still see hangs
+    launch_stagger_ms = 5000,     -- increase delay between launches
+  },
+})
+```
+
+**Root cause fix:** This must be addressed by Anthropic — switching Claude Code's SQLite to WAL mode and adding a nonzero `busy_timeout`. Track progress at [anthropics/claude-code#14124](https://github.com/anthropics/claude-code/issues/14124).
 
 **Board looks wrong after resizing the terminal**
 The board automatically repositions on `VimResized`, but if something looks off, press `r` to refresh or reopen with `:Okuban`.

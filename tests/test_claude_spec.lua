@@ -765,6 +765,162 @@ describe("okuban.claude", function()
     end)
   end)
 
+  describe("config defaults for concurrency", function()
+    it("has max_concurrent_sessions as 3 by default", function()
+      local cfg = config.get().claude
+      assert.are.equal(3, cfg.max_concurrent_sessions)
+    end)
+
+    it("has launch_stagger_ms as 3000 by default", function()
+      local cfg = config.get().claude
+      assert.are.equal(3000, cfg.launch_stagger_ms)
+    end)
+
+    it("allows overriding max_concurrent_sessions via setup", function()
+      config.setup({ claude = { max_concurrent_sessions = 1 } })
+      local cfg = config.get().claude
+      assert.are.equal(1, cfg.max_concurrent_sessions)
+    end)
+
+    it("allows overriding launch_stagger_ms via setup", function()
+      config.setup({ claude = { launch_stagger_ms = 5000 } })
+      local cfg = config.get().claude
+      assert.are.equal(5000, cfg.launch_stagger_ms)
+    end)
+  end)
+
+  describe("running_session_count", function()
+    it("returns 0 when no sessions", function()
+      assert.are.equal(0, claude.running_session_count())
+    end)
+
+    it("counts running sessions", function()
+      local sessions = claude.get_all_sessions()
+      sessions[1] = { status = "running", job_id = 1 }
+      sessions[2] = { status = "running", job_id = 2 }
+      sessions[3] = { status = "completed", job_id = 3 }
+      assert.are.equal(2, claude.running_session_count())
+    end)
+
+    it("counts initializing sessions", function()
+      local sessions = claude.get_all_sessions()
+      sessions[1] = { status = "initializing" }
+      sessions[2] = { status = "running", job_id = 2 }
+      assert.are.equal(2, claude.running_session_count())
+    end)
+
+    it("does not count completed or failed sessions", function()
+      local sessions = claude.get_all_sessions()
+      sessions[1] = { status = "completed", job_id = 1 }
+      sessions[2] = { status = "failed", job_id = 2 }
+      assert.are.equal(0, claude.running_session_count())
+    end)
+  end)
+
+  describe("launch queue", function()
+    it("get_launch_queue returns empty table initially", function()
+      assert.are.equal(0, #claude.get_launch_queue())
+    end)
+
+    it("_reset clears the launch queue", function()
+      -- Manually populate queue
+      local queue = claude.get_launch_queue()
+      table.insert(queue, { issue = { number = 99 }, callback = function() end })
+      assert.are.equal(1, #claude.get_launch_queue())
+
+      claude._reset()
+      assert.are.equal(0, #claude.get_launch_queue())
+    end)
+
+    it("enqueues when at max concurrent sessions", function()
+      local orig = vim.fn.executable
+      vim.fn.executable = function(name)
+        if name == "claude" then
+          return 1
+        end
+        return orig(name)
+      end
+      claude._reset()
+
+      -- Fill up to max_concurrent_sessions (default 3)
+      local sessions = claude.get_all_sessions()
+      sessions[1] = { status = "running", job_id = 1 }
+      sessions[2] = { status = "running", job_id = 2 }
+      sessions[3] = { status = "running", job_id = 3 }
+
+      local result_ok
+      claude.launch({ number = 99 }, function(ok, _err)
+        result_ok = ok
+      end)
+
+      -- Should be queued, not launched
+      assert.are.equal(1, #claude.get_launch_queue())
+      assert.is_nil(result_ok) -- callback not called yet
+
+      vim.fn.executable = orig
+    end)
+
+    it("does not enqueue when under limit", function()
+      local orig = vim.fn.executable
+      vim.fn.executable = function(name)
+        if name == "claude" then
+          return 1
+        end
+        return orig(name)
+      end
+      claude._reset()
+
+      -- Only 1 running session, limit is 3
+      local sessions = claude.get_all_sessions()
+      sessions[1] = { status = "running", job_id = 1 }
+
+      -- launch will proceed to _launch_internal which calls check_auth,
+      -- so we mock vim.system for the auth check
+      helpers.mock_vim_system({
+        { code = 1, stdout = "", stderr = "fail" }, -- auth fails, that's fine
+      })
+
+      local done = false
+      claude.launch({ number = 99 }, function(_, _)
+        done = true
+      end)
+
+      -- Should NOT be in the queue
+      assert.are.equal(0, #claude.get_launch_queue())
+
+      vim.wait(1000, function()
+        return done
+      end)
+      vim.fn.executable = orig
+    end)
+
+    it("rejects duplicate running session regardless of queue", function()
+      local orig = vim.fn.executable
+      vim.fn.executable = function(name)
+        if name == "claude" then
+          return 1
+        end
+        return orig(name)
+      end
+      claude._reset()
+
+      local sessions = claude.get_all_sessions()
+      sessions[42] = { status = "running", job_id = 1 }
+
+      local result_ok, result_err
+      claude.launch({ number = 42 }, function(ok, err)
+        result_ok = ok
+        result_err = err
+      end)
+
+      assert.is_false(result_ok)
+      assert.is_truthy(result_err:find("already running"))
+      assert.are.equal(0, #claude.get_launch_queue())
+
+      vim.fn.executable = orig
+    end)
+  end)
+
   describe("_launch_headless race condition fix", function()
     it("session object is created before jobstart", function()
       -- Verify the session is set to running before jobstart returns

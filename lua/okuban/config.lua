@@ -35,6 +35,8 @@ local M = {}
 ---@field max_turns integer
 ---@field model string|nil Override Claude model (e.g. "sonnet", "opus")
 ---@field launch_mode "auto"|"headless"|"tmux" Launch mode: "auto" (tmux if available), "headless", or "tmux"
+---@field max_concurrent_sessions integer Max simultaneous running sessions (default: 3)
+---@field launch_stagger_ms integer Delay between consecutive launches in ms (default: 3000)
 ---@field allowed_tools string[]
 ---@field worktree_base_dir string|nil
 ---@field auto_push boolean
@@ -129,6 +131,8 @@ local defaults = {
     max_turns = 30,
     model = nil,
     launch_mode = "auto",
+    max_concurrent_sessions = 3,
+    launch_stagger_ms = 3000,
     allowed_tools = {
       "Bash(git:*)",
       "Bash(gh:*)",

@@ -5,10 +5,50 @@ local M = {}
 
 local active_sessions = {} ---@type table<integer, table>
 local claude_checked = nil ---@type boolean|nil nil=unchecked
+local launch_queue = {} ---@type { issue: table, callback: fun(ok: boolean, err: string|nil) }[]
+local last_launch_time = 0 ---@type number timestamp (ms) of last successful launch
+local queue_timer = nil ---@type userdata|nil uv timer for processing the queue
+local queue_generation = 0 ---@type integer incremented on _reset to invalidate stale callbacks
+local process_queue ---@type fun() forward declaration
+
+--- Stop and nil the queue timer safely.
+local function stop_queue_timer()
+  if queue_timer then
+    queue_timer:stop()
+    if not queue_timer:is_closing() then
+      queue_timer:close()
+    end
+    queue_timer = nil
+  end
+end
+
+--- Schedule process_queue to fire after delay_ms. Stops any existing timer first.
+---@param delay_ms integer
+local function schedule_queue(delay_ms)
+  if not queue_timer then
+    queue_timer = vim.uv.new_timer()
+  else
+    queue_timer:stop()
+  end
+  local gen = queue_generation
+  queue_timer:start(
+    delay_ms,
+    0,
+    vim.schedule_wrap(function()
+      if gen == queue_generation then
+        process_queue()
+      end
+    end)
+  )
+end
 
 function M._reset()
   active_sessions = {}
   claude_checked = nil
+  launch_queue = {}
+  last_launch_time = 0
+  queue_generation = queue_generation + 1
+  stop_queue_timer()
 end
 ---@return boolean
 function M.is_available()
@@ -238,9 +278,62 @@ local function handle_event(issue_number, event)
         table.insert(parts, session.num_turns .. " turns")
       end
       utils.notify(string.format("Claude finished #%d (%s)", issue_number, table.concat(parts, ", ")))
+      -- Process queue — a slot may have opened up
+      vim.schedule(process_queue)
     end
   end)
 end
+--- Count sessions that are currently running or initializing.
+---@return integer
+function M.running_session_count()
+  local count = 0
+  for _, session in pairs(active_sessions) do
+    if session.status == "running" or session.status == "initializing" then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+--- Process the next item in the launch queue, respecting stagger delay and concurrency limit.
+process_queue = function()
+  if #launch_queue == 0 then
+    stop_queue_timer()
+    return
+  end
+
+  local cfg = config.get().claude
+  local max_sessions = cfg.max_concurrent_sessions or 3
+  local stagger_ms = cfg.launch_stagger_ms or 3000
+
+  -- Check concurrency limit
+  if M.running_session_count() >= max_sessions then
+    schedule_queue(stagger_ms)
+    return
+  end
+
+  -- Check stagger delay (vim.uv.now() resolution is per event-loop tick)
+  local now = vim.uv.now()
+  local elapsed = now - last_launch_time
+  if elapsed < stagger_ms and last_launch_time > 0 then
+    schedule_queue(stagger_ms - elapsed)
+    return
+  end
+
+  -- Dequeue and launch — reserve the slot immediately to prevent re-entry races
+  local entry = table.remove(launch_queue, 1)
+  active_sessions[entry.issue.number] = { status = "initializing" }
+  last_launch_time = vim.uv.now()
+  M._launch_internal(entry.issue, entry.callback)
+
+  -- Schedule next if more in queue, otherwise clean up timer
+  if #launch_queue > 0 then
+    schedule_queue(stagger_ms)
+  else
+    stop_queue_timer()
+  end
+end
+
 function M.launch(issue, callback)
   callback = callback or function() end
   local issue_number = issue.number
@@ -254,6 +347,38 @@ function M.launch(issue, callback)
     callback(false, "Session already running")
     return
   end
+
+  local cfg = config.get().claude
+  local max_sessions = cfg.max_concurrent_sessions or 3
+  local running = M.running_session_count()
+
+  -- If at capacity or queue is non-empty, enqueue
+  if running >= max_sessions or #launch_queue > 0 then
+    if running >= max_sessions then
+      utils.notify(
+        string.format(
+          "Session limit reached (%d/%d) — #%d queued (SQLite contention mitigation)",
+          running,
+          max_sessions,
+          issue_number
+        )
+      )
+    else
+      utils.notify(string.format("#%d queued — staggering launches to avoid SQLite contention", issue_number))
+    end
+    table.insert(launch_queue, { issue = issue, callback = callback })
+    process_queue()
+    return
+  end
+
+  -- Launch immediately (no queue, under limit)
+  last_launch_time = vim.uv.now()
+  M._launch_internal(issue, callback)
+end
+
+function M._launch_internal(issue, callback)
+  callback = callback or function() end
+  local issue_number = issue.number
   active_sessions[issue_number] = { status = "initializing" }
   local stop = utils.spinner_start("Launching Claude for #" .. issue_number .. "...")
   M.check_auth(function(auth_ok, auth_err)
@@ -261,6 +386,7 @@ function M.launch(issue, callback)
       active_sessions[issue_number] = nil
       stop(auth_err)
       callback(false, auth_err)
+      vim.schedule(process_queue)
       return
     end
 
@@ -270,6 +396,7 @@ function M.launch(issue, callback)
         active_sessions[issue_number] = nil
         stop(wt_err or "Failed to create worktree")
         callback(false, wt_err or "Failed to create worktree")
+        vim.schedule(process_queue)
         return
       end
 
@@ -279,6 +406,7 @@ function M.launch(issue, callback)
           active_sessions[issue_number] = nil
           stop(ctx_err or "Failed to fetch issue context")
           callback(false, ctx_err or "Failed to fetch issue context")
+          vim.schedule(process_queue)
           return
         end
 
@@ -353,6 +481,8 @@ function M._launch_headless(issue_number, cmd, wt_path, stop, callback)
           session.status = (exit_code == 0) and "completed" or "failed"
           utils.notify(string.format("Claude finished #%d (%s, exit %d)", issue_number, session.status, exit_code))
         end
+        -- Process queue — a slot may have opened up
+        process_queue()
       end)
     end,
   })
@@ -419,6 +549,8 @@ function M._launch_tmux(issue_number, headless_cmd, wt_path, stop, callback)
       session.status = (exit_code == 0) and "completed" or "failed"
       session.poll_timer = nil
       utils.notify(string.format("Claude finished #%d (%s, exit %d)", issue_number, session.status, exit_code))
+      -- Process queue — a slot may have opened up
+      process_queue()
     end
   end)
 
@@ -494,7 +626,15 @@ function M.stop(issue_number)
   vim.fn.jobstop(session.job_id)
   session.status = "failed"
   utils.notify("Stopped Claude session for #" .. issue_number)
+  -- Process queue — a slot may have opened up
+  vim.schedule(process_queue)
   return true
+end
+
+--- Get the current launch queue (for testing).
+---@return table[]
+function M.get_launch_queue()
+  return launch_queue
 end
 
 return M
