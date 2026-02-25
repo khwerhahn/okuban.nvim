@@ -45,6 +45,7 @@ function M.open()
   vim.api.nvim_buf_set_lines(help_buf, 0, -1, false, lines)
   vim.bo[help_buf].buftype = "nofile"
   vim.bo[help_buf].bufhidden = "wipe"
+  vim.bo[help_buf].filetype = "okuban"
   vim.bo[help_buf].modifiable = false
 
   local screen_w = vim.o.columns

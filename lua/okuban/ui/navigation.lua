@@ -700,20 +700,26 @@ function Navigation:setup_keymaps(buf)
     end)
   end, opts)
 
-  -- In-board command shortcuts
+  -- In-board command shortcuts (disabled in issue mode to avoid key conflicts)
   vim.keymap.set("n", keymaps.setup_labels, function()
-    vim.cmd("OkubanSetup")
+    if not self.issue_mode then
+      vim.cmd("OkubanSetup")
+    end
   end, opts)
 
   vim.keymap.set("n", keymaps.switch_source, function()
-    local cfg = config.get()
-    local current = cfg.source
-    local target = current == "labels" and "project" or "labels"
-    vim.cmd("OkubanSource " .. target)
+    if not self.issue_mode then
+      local cfg = config.get()
+      local current = cfg.source
+      local target = current == "labels" and "project" or "labels"
+      vim.cmd("OkubanSource " .. target)
+    end
   end, opts)
 
   vim.keymap.set("n", keymaps.triage, function()
-    vim.cmd("OkubanTriage")
+    if not self.issue_mode then
+      vim.cmd("OkubanTriage")
+    end
   end, opts)
 end
 
