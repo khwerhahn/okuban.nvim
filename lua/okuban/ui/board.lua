@@ -364,10 +364,57 @@ function Board:_setup_autocommands()
     end,
   })
 
+  -- Track terminal focus to avoid closing the board on tmux pane switches.
+  -- When Neovim loses focus (FocusLost), Ctrl+l/h/etc. to another tmux pane
+  -- can trigger WinEnter on the underlying non-floating window.  We must
+  -- suppress the "close on WinEnter" logic until FocusGained fires.
+  self._nvim_focused = true
+
+  vim.api.nvim_create_autocmd("FocusLost", {
+    group = self.augroup,
+    callback = function()
+      self._nvim_focused = false
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = self.augroup,
+    callback = function()
+      self._nvim_focused = true
+      -- Re-check: if the user returns to Neovim but the current window
+      -- is not a board window, close the board (deferred to let Neovim settle).
+      vim.schedule(function()
+        if not self:is_open() then
+          return
+        end
+        local win = vim.api.nvim_get_current_win()
+        for _, w in ipairs(self.windows) do
+          if w == win then
+            return
+          end
+        end
+        if self.preview_win and self.preview_win == win then
+          return
+        end
+        local buf = vim.api.nvim_win_get_buf(win)
+        local ft = vim.bo[buf].filetype
+        if ft == "okuban" then
+          return
+        end
+        self:close()
+      end)
+    end,
+  })
+
   -- Close board if focus escapes to a non-board window (e.g. clicking outside)
   vim.api.nvim_create_autocmd("WinEnter", {
     group = self.augroup,
     callback = function()
+      -- Don't close when Neovim itself lost terminal focus (e.g. tmux pane switch)
+      if not self._nvim_focused then
+        return
+      end
+
       local win = vim.api.nvim_get_current_win()
       for _, w in ipairs(self.windows) do
         if w == win then
