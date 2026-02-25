@@ -12,25 +12,33 @@ function M.open()
     return
   end
 
-  local keymaps = config.get().keymaps
+  local km = config.get().keymaps
   local lines = {
-    "  Okuban Keybindings",
-    "  ──────────────────",
+    "  Navigation",
+    "  ──────────",
+    "  " .. km.column_left .. " / \xe2\x86\x90    Previous column",
+    "  " .. km.column_right .. " / \xe2\x86\x92    Next column",
+    "  " .. km.card_up .. " / \xe2\x86\x91    Previous card",
+    "  " .. km.card_down .. " / \xe2\x86\x93    Next card",
     "",
-    "  " .. keymaps.column_left .. "      Previous column",
-    "  " .. keymaps.column_right .. "      Next column",
-    "  " .. keymaps.card_up .. "      Previous card",
-    "  " .. keymaps.card_down .. "      Next card",
-    "  " .. keymaps.move_card .. "      Move card to column",
-    "  " .. keymaps.new_issue .. "      New issue",
-    "  Enter  Action menu",
-    "  " .. keymaps.goto_current .. "      Go to current issue",
-    "  " .. keymaps.refresh .. "      Refresh board",
-    "  " .. keymaps.help .. "      Toggle this help",
-    "  " .. keymaps.close .. "      Close board",
+    "  Actions",
+    "  ───────",
+    "  Enter    Expand / action menu",
+    "  " .. km.move_card .. "        Move card to column",
+    "  " .. km.new_issue .. "        New issue",
+    "  " .. km.goto_current .. "        Go to current issue",
+    "  " .. km.refresh .. "        Refresh board",
+    "  " .. km.help .. "        Toggle this help",
+    "  " .. km.close .. "        Close board",
+    "",
+    "  Commands",
+    "  ────────",
+    "  " .. km.setup_labels .. "        Setup labels",
+    "  " .. km.switch_source .. "        Switch source",
+    "  " .. km.triage .. "        Triage issues",
   }
 
-  local width = 30
+  local width = 32
   local height = #lines
 
   help_buf = vim.api.nvim_create_buf(false, true)
@@ -56,7 +64,7 @@ function M.open()
   })
 
   -- Close on q or Esc or ?
-  local close_keys = { "q", "<Esc>", keymaps.help }
+  local close_keys = { "q", "<Esc>", km.help }
   for _, key in ipairs(close_keys) do
     vim.keymap.set("n", key, function()
       M.close()
