@@ -19,6 +19,9 @@ local M = {}
 ---@field close string
 ---@field refresh string
 ---@field help string
+---@field setup_labels string
+---@field switch_source string
+---@field triage string
 
 ---@class OkubanTmuxSplitConfig
 ---@field target "auto"|"self"|"other" Which pane to split (default: "auto")
@@ -114,6 +117,9 @@ local defaults = {
     close = "q",
     refresh = "r",
     help = "?",
+    setup_labels = "S",
+    switch_source = "s",
+    triage = "t",
   },
   global_keymaps = {
     open = "<leader>bb",

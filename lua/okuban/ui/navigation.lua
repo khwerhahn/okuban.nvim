@@ -586,6 +586,20 @@ function Navigation:setup_keymaps(buf)
     self:move_down()
   end, opts)
 
+  -- Arrow keys always mirror hjkl navigation (supplementary, not configurable)
+  vim.keymap.set("n", "<Left>", function()
+    self:move_left()
+  end, opts)
+  vim.keymap.set("n", "<Right>", function()
+    self:move_right()
+  end, opts)
+  vim.keymap.set("n", "<Up>", function()
+    self:move_up()
+  end, opts)
+  vim.keymap.set("n", "<Down>", function()
+    self:move_down()
+  end, opts)
+
   vim.keymap.set("n", keymaps.close, function()
     self.board:close()
   end, opts)
@@ -684,6 +698,28 @@ function Navigation:setup_keymaps(buf)
         utils.notify("#" .. issue_number .. " not on the board", vim.log.levels.WARN)
       end
     end)
+  end, opts)
+
+  -- In-board command shortcuts (disabled in issue mode to avoid key conflicts)
+  vim.keymap.set("n", keymaps.setup_labels, function()
+    if not self.issue_mode then
+      vim.cmd("OkubanSetup")
+    end
+  end, opts)
+
+  vim.keymap.set("n", keymaps.switch_source, function()
+    if not self.issue_mode then
+      local cfg = config.get()
+      local current = cfg.source
+      local target = current == "labels" and "project" or "labels"
+      vim.cmd("OkubanSource " .. target)
+    end
+  end, opts)
+
+  vim.keymap.set("n", keymaps.triage, function()
+    if not self.issue_mode then
+      vim.cmd("OkubanTriage")
+    end
   end, opts)
 end
 
