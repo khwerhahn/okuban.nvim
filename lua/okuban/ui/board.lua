@@ -316,13 +316,13 @@ function Board:update_preview(issue)
 end
 
 --- Start a limited auto-refresh cycle.
---- Fetches data `auto_refresh_count - 1` more times at `poll_interval` intervals,
+--- Fetches data `auto_refresh_count` times at `poll_interval` intervals,
 --- then stops. Call this after the initial data fetch or after a manual refresh.
 function Board:_start_auto_refresh()
   self:_stop_auto_refresh()
   local cfg = config.get()
   local interval = (cfg.poll_interval or 60) * 1000
-  local count = (cfg.auto_refresh_count or 3) - 1
+  local count = cfg.auto_refresh_count or 3
 
   if interval <= 0 or count <= 0 then
     return
@@ -821,9 +821,8 @@ function Board:open(data)
 
   self:_setup_autocommands()
 
-  -- Record update timestamp and start limited auto-refresh cycle
+  -- Record update timestamp (auto-refresh cycle is managed by callers)
   header.set_last_updated(os.time())
-  self:_start_auto_refresh()
 end
 
 --- Reposition all windows after a resize.

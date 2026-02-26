@@ -199,6 +199,7 @@ function M.refresh()
     end
     stop()
     board:refresh(data)
+    board:_start_auto_refresh()
   end)
 end
 

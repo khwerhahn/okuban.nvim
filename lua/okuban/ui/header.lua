@@ -21,7 +21,7 @@ function M._format_staleness(ts)
     return nil
   end
   local elapsed = os.time() - ts
-  if elapsed < 10 then
+  if elapsed <= 10 then
     return "just now"
   end
   if elapsed < 60 then
