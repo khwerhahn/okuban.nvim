@@ -56,7 +56,7 @@ Moving a card between columns swaps labels automatically. No GitHub Projects boa
 ## Features
 
 - **Preview pane** — Issue details (title, labels, assignees, body excerpt) displayed below the board. Automatically updates as you navigate between cards.
-- **Auto-polling** — The board refreshes from GitHub every 20 seconds (configurable, or disable with `poll_interval = 0`).
+- **Auto-refresh** — The board refreshes from GitHub a limited number of times after opening (default: 3 fetches at 60s intervals), then stops to conserve API quota. A subtle staleness indicator in the header shows time since last update. Press `r` to refresh manually and restart the cycle.
 - **Auto-focus** — On board open, okuban detects which issue you're working on from your git branch name, recent commit messages, or the `gh` CLI, and scrolls to that card. Press `g` to re-trigger.
 - **Worktree status badges** — Cards show git worktree indicators: `○` (worktree exists, clean), `●` (worktree exists, dirty). The card for your active worktree is highlighted in orange.
 - **Action menu** — Press `<CR>` on any card to open a floating menu with actions: move, view in browser, close, assign, or launch Claude Code.
@@ -190,7 +190,10 @@ require("okuban").setup({
   show_tldr = true,
 
   -- Auto-refresh interval in seconds (0 to disable)
-  poll_interval = 20,
+  poll_interval = 60,
+
+  -- Total auto-refreshes after board open (then stops, press r to restart)
+  auto_refresh_count = 3,
 
   -- Global keymaps (set false to disable, or change the key)
   global_keymaps = {
@@ -411,7 +414,7 @@ require("okuban").setup({
 })
 ```
 
-**How do I disable auto-polling?**
+**How do I disable auto-refresh?**
 Set `poll_interval` to 0:
 ```lua
 require("okuban").setup({

@@ -10,6 +10,28 @@ local header_buf = nil
 local current_mode = M.MODE_DEFAULT
 local current_issue = nil
 local stored_width = nil
+local _last_updated_at = nil
+local _staleness_timer = nil
+
+--- Format elapsed time since last update as a human-readable string.
+---@param ts integer|nil os.time() timestamp
+---@return string|nil
+function M._format_staleness(ts)
+  if not ts then
+    return nil
+  end
+  local elapsed = os.time() - ts
+  if elapsed <= 10 then
+    return "just now"
+  end
+  if elapsed < 60 then
+    return elapsed .. "s ago"
+  end
+  if elapsed < 3600 then
+    return math.floor(elapsed / 60) .. "m ago"
+  end
+  return math.floor(elapsed / 3600) .. "h ago"
+end
 
 --- Render header content lines based on mode.
 ---@param mode string
@@ -17,6 +39,7 @@ local stored_width = nil
 ---@return string[]
 function M._render(mode, issue)
   local width = stored_width or 100
+  local inner_width = width - 2
 
   if mode == M.MODE_ISSUE and issue then
     local parts = { " [Esc] Back  [m] Move  [v] View" }
@@ -40,7 +63,16 @@ function M._render(mode, issue)
     end
     return { prefix .. separator .. title }
   else
-    return { " [Enter] Actions  [m] Move  [n] New  [g] Goto  [s] Source  [r] Refresh  [?] Help  [q] Close" }
+    local left = " [Enter] Actions  [m] Move  [n] New  [g] Goto  [s] Source  [r] Refresh  [?] Help  [q] Close"
+    local staleness = M._format_staleness(_last_updated_at)
+    if staleness then
+      local right = staleness .. " "
+      local padding = inner_width - #left - #right
+      if padding > 2 then
+        return { left .. string.rep(" ", padding) .. right }
+      end
+    end
+    return { left }
   end
 end
 
@@ -125,8 +157,44 @@ function M.exit_issue_mode()
   M.update(M.MODE_DEFAULT, nil)
 end
 
+--- Record the time of the last data update and start the staleness timer.
+---@param ts integer os.time() timestamp
+function M.set_last_updated(ts)
+  _last_updated_at = ts
+  -- Re-render header to show fresh staleness text
+  M.update(current_mode, current_issue)
+  M._start_staleness_timer()
+end
+
+--- Start (or restart) the 10-second staleness display timer.
+function M._start_staleness_timer()
+  M._stop_staleness_timer()
+  local timer = vim.uv.new_timer()
+  timer:start(
+    10000,
+    10000,
+    vim.schedule_wrap(function()
+      -- Re-render header to update staleness text
+      if header_buf and vim.api.nvim_buf_is_valid(header_buf) then
+        M.update(current_mode, current_issue)
+      end
+    end)
+  )
+  _staleness_timer = timer
+end
+
+--- Stop the staleness display timer.
+function M._stop_staleness_timer()
+  if _staleness_timer then
+    _staleness_timer:stop()
+    _staleness_timer:close()
+    _staleness_timer = nil
+  end
+end
+
 --- Close the header window and clean up.
 function M.close()
+  M._stop_staleness_timer()
   if header_win and vim.api.nvim_win_is_valid(header_win) then
     vim.api.nvim_win_close(header_win, true)
   end
@@ -135,6 +203,7 @@ function M.close()
   current_mode = M.MODE_DEFAULT
   current_issue = nil
   stored_width = nil
+  _last_updated_at = nil
 end
 
 --- Reposition the header window after a resize.
@@ -161,13 +230,21 @@ function M.get_win()
   return header_win
 end
 
+--- Get the last updated timestamp (for tests).
+---@return integer|nil
+function M.get_last_updated()
+  return _last_updated_at
+end
+
 --- Reset state (for tests).
 function M._reset()
+  M._stop_staleness_timer()
   header_win = nil
   header_buf = nil
   current_mode = M.MODE_DEFAULT
   current_issue = nil
   stored_width = nil
+  _last_updated_at = nil
 end
 
 return M

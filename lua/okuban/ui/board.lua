@@ -174,6 +174,7 @@ function Board.new()
   o.preview_buf = nil
   o._poll_timer = nil
   o._polling = false
+  o._auto_refresh_remaining = 0
   o.sub_issue_counts = {}
   o._expanded_col_idx = nil
   return o
@@ -314,16 +315,22 @@ function Board:update_preview(issue)
   vim.bo[self.preview_buf].modifiable = false
 end
 
---- Start auto-refresh polling timer.
-function Board:_start_polling()
-  self:_stop_polling()
+--- Start a limited auto-refresh cycle.
+--- Fetches data `auto_refresh_count` times at `poll_interval` intervals,
+--- then stops. Call this after the initial data fetch or after a manual refresh.
+function Board:_start_auto_refresh()
+  self:_stop_auto_refresh()
   local cfg = config.get()
-  local interval = (cfg.poll_interval or 20) * 1000
-  if interval <= 0 then
+  local interval = (cfg.poll_interval or 60) * 1000
+  local count = cfg.auto_refresh_count or 3
+
+  if interval <= 0 or count <= 0 then
     return
   end
 
+  self._auto_refresh_remaining = count
   self._polling = false
+
   local timer = vim.uv.new_timer()
   timer:start(
     interval,
@@ -332,12 +339,22 @@ function Board:_start_polling()
       if not self:is_open() or self._polling then
         return
       end
+      if self._auto_refresh_remaining <= 0 then
+        self:_stop_auto_refresh()
+        return
+      end
+
       self._polling = true
+      self._auto_refresh_remaining = self._auto_refresh_remaining - 1
+
       local api = require("okuban.api")
       api.fetch_all_columns(function(data)
         self._polling = false
         if data and self:is_open() then
           self:refresh(data)
+        end
+        if self._auto_refresh_remaining <= 0 then
+          self:_stop_auto_refresh()
         end
       end)
     end)
@@ -345,14 +362,15 @@ function Board:_start_polling()
   self._poll_timer = timer
 end
 
---- Stop auto-refresh polling timer.
-function Board:_stop_polling()
+--- Stop auto-refresh timer and reset remaining count.
+function Board:_stop_auto_refresh()
   if self._poll_timer then
     self._poll_timer:stop()
     self._poll_timer:close()
     self._poll_timer = nil
   end
   self._polling = false
+  self._auto_refresh_remaining = 0
 end
 
 --- Set up common autocommands (VimResized, WinClosed, WinEnter).
@@ -710,7 +728,8 @@ function Board:populate(data)
   end
   self.navigation:highlight_current()
 
-  self:_start_polling()
+  -- Record update timestamp for staleness indicator
+  header.set_last_updated(os.time())
 end
 
 --- Open the board with the given data (immediate, no loading phase).
@@ -801,7 +820,9 @@ function Board:open(data)
   self.navigation:highlight_current()
 
   self:_setup_autocommands()
-  self:_start_polling()
+
+  -- Record update timestamp (auto-refresh cycle is managed by callers)
+  header.set_last_updated(os.time())
 end
 
 --- Reposition all windows after a resize.
@@ -928,7 +949,7 @@ end
 
 --- Close the board and clean up all windows and buffers.
 function Board:close()
-  self:_stop_polling()
+  self:_stop_auto_refresh()
   require("okuban.ui.tree").reset()
 
   if self.augroup then

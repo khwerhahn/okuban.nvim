@@ -155,10 +155,11 @@ function M._open_board(board)
   local cached = api.get_cached_board_data(CACHE_MAX_AGE)
   if cached then
     M._populate_board(board, cached, false)
-    -- Refresh in background
+    -- Refresh immediately in background, then start limited auto-refresh cycle
     api.fetch_all_columns(function(data)
       if data and board:is_open() then
         board:refresh(data)
+        board:_start_auto_refresh()
       end
     end)
     return
@@ -172,6 +173,7 @@ function M._open_board(board)
       return
     end
     M._populate_board(board, data, false)
+    board:_start_auto_refresh()
   end)
 end
 
@@ -197,6 +199,7 @@ function M.refresh()
     end
     stop()
     board:refresh(data)
+    board:_start_auto_refresh()
   end)
 end
 

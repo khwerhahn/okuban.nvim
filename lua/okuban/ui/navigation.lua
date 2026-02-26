@@ -628,6 +628,8 @@ function Navigation:setup_keymaps(buf)
     api.fetch_all_columns(function(data)
       if data then
         self.board:refresh(data)
+        -- Reset the limited auto-refresh cycle on manual refresh
+        self.board:_start_auto_refresh()
       end
     end)
   end, opts)
