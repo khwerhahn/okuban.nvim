@@ -399,8 +399,10 @@ function Board:_setup_autocommands()
     group = self.augroup,
     callback = function()
       self._nvim_focused = true
-      -- Re-check: if the user returns to Neovim but the current window
-      -- is not a board window, close the board (deferred to let Neovim settle).
+      -- When the user returns to Neovim, the current window may be a
+      -- non-board window if wincmd escaped the float during a tmux pane
+      -- switch.  Refocus back to the board instead of closing — the user
+      -- left via tmux, not by intentionally dismissing the board.
       vim.schedule(function()
         if not self:is_open() then
           return
@@ -419,7 +421,17 @@ function Board:_setup_autocommands()
         if ft == "okuban" then
           return
         end
-        self:close()
+        -- Refocus back to the board window
+        if self.navigation then
+          self.navigation:_focus_window()
+        else
+          for _, w in ipairs(self.windows) do
+            if vim.api.nvim_win_is_valid(w) then
+              vim.api.nvim_set_current_win(w)
+              break
+            end
+          end
+        end
       end)
     end,
   })
@@ -448,10 +460,21 @@ function Board:_setup_autocommands()
       if ft == "okuban" then
         return
       end
-      -- Entered a non-board window — close the board
-      vim.schedule(function()
+      -- Entered a non-board window — delay close to let FocusLost fire first.
+      -- When tmux navigation plugins (vim-tmux-navigator, smart-splits, etc.)
+      -- send wincmd l/h, WinEnter fires BEFORE the terminal delivers the
+      -- FocusLost escape sequence.  A short delay lets FocusLost set
+      -- _nvim_focused=false so we can distinguish a tmux pane switch from
+      -- the user intentionally clicking outside the board.
+      vim.defer_fn(function()
+        if not self:is_open() then
+          return
+        end
+        if not self._nvim_focused then
+          return
+        end
         self:close()
-      end)
+      end, 100)
     end,
   })
 
