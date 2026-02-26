@@ -141,7 +141,8 @@ Pass options to `setup()`: >lua
     github_hostname = nil,
     preview_lines = 8,
     show_tldr = true,
-    poll_interval = 20,
+    poll_interval = 60,
+    auto_refresh_count = 3,
     global_keymaps = {
       open           = "<leader>bb",
       close          = "<leader>bq",
@@ -244,8 +245,15 @@ show_tldr                                           *okuban-config-show-tldr*
   Show a TLDR excerpt from the issue body in the preview pane.
 
 poll_interval                                   *okuban-config-poll-interval*
-  Type: `integer`, Default: `20`
-  Auto-refresh interval in seconds. Set to 0 to disable auto-polling.
+  Type: `integer`, Default: `60`
+  Interval in seconds between auto-refreshes. Set to 0 to disable.
+
+auto_refresh_count                         *okuban-config-auto-refresh-count*
+  Type: `integer`, Default: `3`
+  Total number of data fetches after the board opens (including the
+  initial fetch). After this count is reached, the board stops polling
+  and shows a staleness indicator in the header (e.g., "2m ago").
+  Press `r` to refresh manually and reset the cycle.
 
 global_keymaps                                 *okuban-config-global-keymaps*
   Type: `table`
@@ -325,11 +333,14 @@ issue number, title, state, labels, assignees, and a body excerpt. Updates
 automatically as you navigate. Configure height with `preview_lines` or
 disable with `preview_lines = 0`.
 
-Auto-Polling ~
-                                                       *okuban-auto-polling*
-The board refreshes from GitHub at a configurable interval (default: 20
-seconds). Disable with `poll_interval = 0`. The refresh preserves your
-current cursor position.
+Auto-Refresh ~
+                                                     *okuban-auto-refresh*
+The board automatically refreshes a limited number of times after opening
+(default: 3 total fetches at 60-second intervals), then stops to avoid
+hitting GitHub API rate limits. A staleness indicator in the header shows
+how long ago data was last fetched (e.g., "2m ago"), updating every 10
+seconds. Press `r` to refresh manually and restart the cycle. Disable
+auto-refresh entirely with `poll_interval = 0`.
 
 Auto-Focus ~
                                                         *okuban-auto-focus*
@@ -436,7 +447,7 @@ Q: Can I use this with GitHub Enterprise? ~
 A: Yes. Set `github_hostname` in your config.
 See |okuban-config-github-hostname|.
 
-Q: How do I disable auto-polling? ~
+Q: How do I disable auto-refresh? ~
 A: Set `poll_interval = 0`. See |okuban-config-poll-interval|.
 
 Q: Why is the Done column limited to 20 issues? ~

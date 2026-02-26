@@ -63,8 +63,12 @@ describe("okuban.config", function()
       assert.is_true(config.get().show_tldr)
     end)
 
-    it("has poll_interval default of 20", function()
-      assert.equals(20, config.get().poll_interval)
+    it("has poll_interval default of 60", function()
+      assert.equals(60, config.get().poll_interval)
+    end)
+
+    it("has auto_refresh_count default of 3", function()
+      assert.equals(3, config.get().auto_refresh_count)
     end)
 
     it("has initial_fetch_limit default of 10", function()

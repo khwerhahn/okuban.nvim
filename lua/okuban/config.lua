@@ -76,7 +76,8 @@ local M = {}
 ---@field github_hostname string|nil
 ---@field preview_lines integer Height of preview pane below board (0 to disable, default: 8)
 ---@field show_tldr boolean Show TLDR in preview pane from issue body (default: true)
----@field poll_interval integer Auto-refresh interval in seconds (0 to disable, default: 20)
+---@field poll_interval integer Auto-refresh interval in seconds (0 to disable, default: 60)
+---@field auto_refresh_count integer Total auto-refreshes after board open (default: 3, then stops)
 ---@field initial_fetch_limit integer Initial issues per column (default: 10, 0 to disable lazy loading)
 ---@field keymaps OkubanKeymaps
 ---@field global_keymaps OkubanGlobalKeymaps
@@ -103,7 +104,8 @@ local defaults = {
   github_hostname = nil,
   preview_lines = 8,
   show_tldr = true,
-  poll_interval = 20,
+  poll_interval = 60,
+  auto_refresh_count = 3,
   initial_fetch_limit = 10,
   keymaps = {
     column_left = "h",
