@@ -723,6 +723,23 @@ function Navigation:setup_keymaps(buf)
       vim.cmd("OkubanTriage")
     end
   end, opts)
+
+  -- Prevent <C-h/j/k/l> and <C-w>h/j/k/l from escaping the floating window.
+  -- These keys (used by vim-tmux-navigator, smart-splits, etc.) trigger wincmd
+  -- which moves focus from the float to a non-floating window, causing the
+  -- board to close.  Intercept them and route directly to tmux instead.
+  local tmux = require("okuban.tmux")
+  local tmux_dirs = { ["h"] = "L", ["j"] = "D", ["k"] = "U", ["l"] = "R" }
+  for key, dir in pairs(tmux_dirs) do
+    local switch_pane = function()
+      if tmux.is_available() then
+        vim.system({ "tmux", "select-pane", "-" .. dir })
+      end
+    end
+    vim.keymap.set("n", "<C-" .. key .. ">", switch_pane, opts)
+    vim.keymap.set("n", "<C-w>" .. key, switch_pane, opts)
+    vim.keymap.set("n", "<C-w><C-" .. key .. ">", switch_pane, opts)
+  end
 end
 
 return Navigation
