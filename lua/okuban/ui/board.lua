@@ -382,75 +382,16 @@ function Board:_setup_autocommands()
     end,
   })
 
-  -- Track terminal focus to avoid closing the board on tmux pane switches.
-  -- When Neovim loses focus (FocusLost), Ctrl+l/h/etc. to another tmux pane
-  -- can trigger WinEnter on the underlying non-floating window.  We must
-  -- suppress the "close on WinEnter" logic until FocusGained fires.
-  self._nvim_focused = true
+  -- The board is modal: it only closes on explicit user action (q / Esc).
+  -- If focus escapes (wincmd, mouse click, tmux pane switch, etc.), refocus
+  -- back to the board instead of closing.  This follows the same pattern as
+  -- lazy.nvim's :Lazy popup and other modal floating UIs.
 
-  vim.api.nvim_create_autocmd("FocusLost", {
+  vim.api.nvim_create_autocmd({ "WinEnter", "FocusGained" }, {
     group = self.augroup,
     callback = function()
-      self._nvim_focused = false
-    end,
-  })
-
-  vim.api.nvim_create_autocmd("FocusGained", {
-    group = self.augroup,
-    callback = function()
-      self._nvim_focused = true
-      -- Re-check: if the user returns to Neovim but the current window
-      -- is not a board window, close the board (deferred to let Neovim settle).
       vim.schedule(function()
-        if not self:is_open() then
-          return
-        end
-        local win = vim.api.nvim_get_current_win()
-        for _, w in ipairs(self.windows) do
-          if w == win then
-            return
-          end
-        end
-        if self.preview_win and self.preview_win == win then
-          return
-        end
-        local buf = vim.api.nvim_win_get_buf(win)
-        local ft = vim.bo[buf].filetype
-        if ft == "okuban" then
-          return
-        end
-        self:close()
-      end)
-    end,
-  })
-
-  -- Close board if focus escapes to a non-board window (e.g. clicking outside)
-  vim.api.nvim_create_autocmd("WinEnter", {
-    group = self.augroup,
-    callback = function()
-      -- Don't close when Neovim itself lost terminal focus (e.g. tmux pane switch)
-      if not self._nvim_focused then
-        return
-      end
-
-      local win = vim.api.nvim_get_current_win()
-      for _, w in ipairs(self.windows) do
-        if w == win then
-          return
-        end
-      end
-      if self.preview_win and self.preview_win == win then
-        return
-      end
-      -- Allow okuban popup windows (actions menu, help, vim.ui.select)
-      local buf = vim.api.nvim_win_get_buf(win)
-      local ft = vim.bo[buf].filetype
-      if ft == "okuban" then
-        return
-      end
-      -- Entered a non-board window — close the board
-      vim.schedule(function()
-        self:close()
+        self:_refocus_if_escaped()
       end)
     end,
   })
@@ -557,6 +498,7 @@ function Board:open_loading()
 
   -- Set up close keymaps on loading buffers
   local keymaps = cfg.keymaps
+  local tmux = require("okuban.tmux")
   for _, buf in ipairs(self.buffers) do
     local buf_opts = { buffer = buf, nowait = true, silent = true }
     vim.keymap.set("n", keymaps.close, function()
@@ -566,6 +508,18 @@ function Board:open_loading()
       vim.keymap.set("n", "<Esc>", function()
         self:close()
       end, buf_opts)
+    end
+    -- Block wincmd / ctrl-nav from escaping floats (same as navigation keymaps)
+    local tmux_dirs = { ["h"] = "L", ["j"] = "D", ["k"] = "U", ["l"] = "R" }
+    for key, dir in pairs(tmux_dirs) do
+      local switch_pane = function()
+        if tmux.is_available() then
+          vim.system({ "tmux", "select-pane", "-" .. dir })
+        end
+      end
+      vim.keymap.set("n", "<C-" .. key .. ">", switch_pane, buf_opts)
+      vim.keymap.set("n", "<C-w>" .. key, switch_pane, buf_opts)
+      vim.keymap.set("n", "<C-w><C-" .. key .. ">", switch_pane, buf_opts)
     end
   end
 
@@ -823,6 +777,41 @@ function Board:open(data)
 
   -- Record update timestamp (auto-refresh cycle is managed by callers)
   header.set_last_updated(os.time())
+end
+
+--- If the current window is not a board window (focus escaped via wincmd,
+--- mouse click, tmux pane switch, etc.), refocus back to the board.
+--- The board is modal and only closes via explicit q / Esc.
+function Board:_refocus_if_escaped()
+  if not self:is_open() then
+    return
+  end
+  local win = vim.api.nvim_get_current_win()
+  for _, w in ipairs(self.windows) do
+    if w == win then
+      return
+    end
+  end
+  if self.preview_win and self.preview_win == win then
+    return
+  end
+  -- Allow okuban popup windows (actions menu, help, vim.ui.select).
+  -- win is from nvim_get_current_win() so it is always valid.
+  local buf = vim.api.nvim_win_get_buf(win)
+  if vim.bo[buf].filetype == "okuban" then
+    return
+  end
+  -- Refocus back to the board
+  if self.navigation then
+    self.navigation:_focus_window()
+  else
+    for _, w in ipairs(self.windows) do
+      if vim.api.nvim_win_is_valid(w) then
+        vim.api.nvim_set_current_win(w)
+        break
+      end
+    end
+  end
 end
 
 --- Reposition all windows after a resize.
