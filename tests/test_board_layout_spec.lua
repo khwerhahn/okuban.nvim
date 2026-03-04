@@ -139,14 +139,14 @@ describe("okuban.ui.board layout", function()
       assert.is_not_nil(layout.logo_row)
       -- logo_row should be above header_row
       assert.is_true(layout.logo_row < layout.header_row)
-      -- header_row = logo_row + 5 (canopy height)
-      assert.equals(layout.logo_row + 5, layout.header_row)
+      -- header_row = logo_row + 6 (canopy height)
+      assert.equals(layout.logo_row + 6, layout.header_row)
     end)
 
     it("reduces board_height when logo is shown", function()
       local without = Board.calculate_layout(5, 120, 40, 0, false)
       local with_logo = Board.calculate_layout(5, 120, 40, 0, true)
-      -- Logo takes 5 rows from available space, reducing board_height
+      -- Logo takes 6 rows from available space, reducing board_height
       assert.is_true(with_logo.board_height < without.board_height)
     end)
 
@@ -154,8 +154,8 @@ describe("okuban.ui.board layout", function()
       local without = Board.calculate_layout(5, 120, 40, 0, false)
       local with_logo = Board.calculate_layout(5, 120, 40, 0, true)
       -- header_row with logo should be shifted compared to without
-      -- (exact difference depends on centering, but logo_row + 5 == header_row)
-      assert.equals(with_logo.logo_row + 5, with_logo.header_row)
+      -- (exact difference depends on centering, but logo_row + 6 == header_row)
+      assert.equals(with_logo.logo_row + 6, with_logo.header_row)
       -- start_row = header_row + 4 in both cases
       assert.equals(with_logo.header_row + 4, with_logo.start_row)
       assert.equals(without.header_row + 4, without.start_row)
@@ -166,7 +166,7 @@ describe("okuban.ui.board layout", function()
       assert.is_not_nil(layout.logo_row)
       assert.is_not_nil(layout.preview_row)
       assert.is_true(layout.logo_row < layout.header_row)
-      assert.equals(layout.logo_row + 5, layout.header_row)
+      assert.equals(layout.logo_row + 6, layout.header_row)
     end)
 
     it("reduces board_height with preview when logo is shown", function()

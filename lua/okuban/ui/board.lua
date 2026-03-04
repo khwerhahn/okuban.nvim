@@ -29,7 +29,7 @@ local ns_active = vim.api.nvim_create_namespace("okuban_worktree_active")
 ---@param screen_width integer|nil
 ---@param screen_height integer|nil
 ---@param preview_lines integer|nil Height of preview pane (0 or nil to disable)
----@param show_logo boolean|nil Show ASCII logo above header (adds 3 rows)
+---@param show_logo boolean|nil Show ASCII logo above header (adds 6 rows)
 ---@return table
 function Board.calculate_layout(num_cols, screen_width, screen_height, preview_lines, show_logo)
   local sw = screen_width or vim.o.columns
@@ -55,8 +55,8 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
   local header_gap = 1
   local header_space = header_inner + header_border + header_gap
 
-  -- Logo: 5 lines above header (canopy + trunk/pot)
-  local logo_height = show_logo and 5 or 0
+  -- Logo: 6 lines above header (canopy + trunk/pot)
+  local logo_height = show_logo and 6 or 0
 
   if preview_lines > 0 then
     -- Columns get 75% of available height, preview gets the rest

@@ -18,17 +18,18 @@ local logo_win = nil
 
 local ns_logo = vim.api.nvim_create_namespace("okuban_logo")
 
--- ASCII bonsai tree (block characters)
+-- ASCII bonsai tree (scattered card clusters on branches, matching okuban logo)
 local LOGO_ART = {
-  "   ▄█▄",
-  " ▄█████▄",
-  "█████████",
-  " ▀█████▀",
-  "  ╰─█─╯",
+  " ▄▀ ▄▀▄ ▀▄ ",
+  "▐█▌▐███▌▐█▌",
+  " ▀▄▄▐█▌▄▄▀ ",
+  "    ▐█▌     ",
+  "    ▐█▌     ",
+  "  ▄▀███▀▄   ",
 }
-local LOGO_WIDTH = 9
-local LOGO_HEIGHT = 5
-local LOGO_CANOPY_LINES = 4 -- lines 0-3 are canopy (green), line 4 is trunk/pot
+local LOGO_WIDTH = 12
+local LOGO_HEIGHT = 6
+local LOGO_CANOPY_LINES = 3 -- lines 0-2 are canopy (green), lines 3-5 are trunk/pot
 
 --- Format elapsed time since last update as a human-readable string.
 ---@param ts integer|nil os.time() timestamp
