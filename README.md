@@ -27,15 +27,20 @@ okuban.nvim takes a different approach: your issues **are** your board. Add labe
 
 ## Philosophy
 
-okuban.nvim is **opinionated by design**. It was born from a specific workflow — Neovim, tmux, and Claude Code in a terminal — and the defaults reflect that.
+okuban.nvim is **opinionated by design**. I built it for my own workflow — Neovim, tmux, and Claude Code in a terminal — where I wanted a kanban board that lives where I code, not in a browser tab I forget to check.
+
+The plugin assumes a few things about how you work:
+- **Issues are the source of truth** — Every task, bug, and feature is a GitHub issue. Labels drive the board, not a separate project configuration.
+- **The terminal is home** — You navigate with the keyboard, your editor is always open, and context-switching to a browser is friction.
+- **AI-assisted coding is part of the flow** — Claude Code can pick up issues from the board and work on them autonomously in git worktrees. This is optional — the kanban is fully functional without it.
+
+These are my workflows and my opinions baked into defaults. I hope they help others who work the same way. If your workflow is different, nearly everything is configurable — columns, labels, keymaps, polling, split directions — so you can adapt it to fit.
 
 **Key design decisions:**
 - **Labels over Projects** — Zero setup. Works with any GitHub repo. No board configuration needed. GitHub Projects v2 is supported as an opt-in upgrade path for growing teams.
 - **Terminal-native** — Built for developers who live in the terminal. No browser, no Electron, no mouse required.
 - **Claude Code integration** — First-class support for AI-assisted coding directly from the board. Optional — the kanban works fully without it.
 - **Everything configurable** — Columns, labels, keymaps, polling intervals, split directions — the defaults are intentional, but nothing is locked down.
-
-If this workflow resonates with you, okuban will feel like home. If not, the core kanban (issues + labels + Neovim) works great on its own.
 
 ## How It Works
 
