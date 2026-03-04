@@ -79,6 +79,7 @@ local M = {}
 ---@field poll_interval integer Auto-refresh interval in seconds (0 to disable, default: 60)
 ---@field auto_refresh_count integer Timer-fired auto-refreshes after board open (default: 3, then stops)
 ---@field initial_fetch_limit integer Initial issues per column (default: 10, 0 to disable lazy loading)
+---@field show_logo boolean Show ASCII bonsai logo above header (default: true)
 ---@field keymaps OkubanKeymaps
 ---@field global_keymaps OkubanGlobalKeymaps
 ---@field claude OkubanClaudeConfig
@@ -99,6 +100,7 @@ local defaults = {
     owner = nil,
     done_limit = 20,
   },
+  show_logo = true,
   show_unsorted = true,
   skip_preflight = false,
   github_hostname = nil,

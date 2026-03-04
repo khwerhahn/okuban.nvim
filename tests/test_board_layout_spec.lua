@@ -123,6 +123,57 @@ describe("okuban.ui.board layout", function()
       assert.equals(1, layout.header_height)
       assert.equals(layout.header_row + 4, layout.start_row)
     end)
+
+    it("has no logo_row when show_logo is false", function()
+      local layout = Board.calculate_layout(5, 120, 40, 0, false)
+      assert.is_nil(layout.logo_row)
+    end)
+
+    it("has no logo_row when show_logo is nil", function()
+      local layout = Board.calculate_layout(5, 120, 40)
+      assert.is_nil(layout.logo_row)
+    end)
+
+    it("includes logo_row when show_logo is true", function()
+      local layout = Board.calculate_layout(5, 120, 40, 0, true)
+      assert.is_not_nil(layout.logo_row)
+      -- logo_row should be above header_row
+      assert.is_true(layout.logo_row < layout.header_row)
+      -- header_row = logo_row + 5 (canopy height)
+      assert.equals(layout.logo_row + 5, layout.header_row)
+    end)
+
+    it("reduces board_height when logo is shown", function()
+      local without = Board.calculate_layout(5, 120, 40, 0, false)
+      local with_logo = Board.calculate_layout(5, 120, 40, 0, true)
+      -- Logo takes 5 rows from available space, reducing board_height
+      assert.is_true(with_logo.board_height < without.board_height)
+    end)
+
+    it("shifts header_row down by logo height", function()
+      local without = Board.calculate_layout(5, 120, 40, 0, false)
+      local with_logo = Board.calculate_layout(5, 120, 40, 0, true)
+      -- header_row with logo should be shifted compared to without
+      -- (exact difference depends on centering, but logo_row + 5 == header_row)
+      assert.equals(with_logo.logo_row + 5, with_logo.header_row)
+      -- start_row = header_row + 4 in both cases
+      assert.equals(with_logo.header_row + 4, with_logo.start_row)
+      assert.equals(without.header_row + 4, without.start_row)
+    end)
+
+    it("includes logo_row with preview and logo", function()
+      local layout = Board.calculate_layout(5, 120, 40, 8, true)
+      assert.is_not_nil(layout.logo_row)
+      assert.is_not_nil(layout.preview_row)
+      assert.is_true(layout.logo_row < layout.header_row)
+      assert.equals(layout.logo_row + 5, layout.header_row)
+    end)
+
+    it("reduces board_height with preview when logo is shown", function()
+      local without = Board.calculate_layout(5, 120, 40, 8, false)
+      local with_logo = Board.calculate_layout(5, 120, 40, 8, true)
+      assert.is_true(with_logo.board_height < without.board_height)
+    end)
   end)
 
   describe("compute_column_widths", function()

@@ -13,6 +13,23 @@ local stored_width = nil
 local _last_updated_at = nil
 local _staleness_timer = nil
 
+-- Logo state
+local logo_win = nil
+
+local ns_logo = vim.api.nvim_create_namespace("okuban_logo")
+
+-- ASCII bonsai tree (block characters)
+local LOGO_ART = {
+  "   ▄█▄",
+  " ▄█████▄",
+  "█████████",
+  " ▀█████▀",
+  "  ╰─█─╯",
+}
+local LOGO_WIDTH = 9
+local LOGO_HEIGHT = 5
+local LOGO_CANOPY_LINES = 4 -- lines 0-3 are canopy (green), line 4 is trunk/pot
+
 --- Format elapsed time since last update as a human-readable string.
 ---@param ts integer|nil os.time() timestamp
 ---@return string|nil
@@ -76,6 +93,84 @@ function M._render(mode, issue)
   end
 end
 
+--- Create the logo floating window.
+---@param layout table Layout from Board.calculate_layout
+function M._create_logo(layout)
+  if not layout.logo_row then
+    return
+  end
+
+  local board_center = layout.start_col + math.floor(layout.board_width / 2) + 1
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].swapfile = false
+
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, LOGO_ART)
+  vim.bo[buf].modifiable = false
+
+  -- Canopy lines (green)
+  for i = 0, LOGO_CANOPY_LINES - 1 do
+    vim.api.nvim_buf_add_highlight(buf, ns_logo, "OkubanLogo", i, 0, -1)
+  end
+  -- Trunk + pot lines
+  for i = LOGO_CANOPY_LINES, LOGO_HEIGHT - 1 do
+    vim.api.nvim_buf_add_highlight(buf, ns_logo, "OkubanLogoTrunk", i, 0, -1)
+  end
+
+  local logo_col = board_center - math.floor(LOGO_WIDTH / 2)
+
+  logo_win = vim.api.nvim_open_win(buf, false, {
+    relative = "editor",
+    row = layout.logo_row,
+    col = logo_col,
+    width = LOGO_WIDTH,
+    height = LOGO_HEIGHT,
+    style = "minimal",
+    border = "none",
+    focusable = false,
+    zindex = 55,
+  })
+
+  vim.wo[logo_win].winhl = "NormalFloat:Normal"
+end
+
+--- Close logo window and clean up.
+function M._close_logo()
+  if logo_win and vim.api.nvim_win_is_valid(logo_win) then
+    vim.api.nvim_win_close(logo_win, true)
+  end
+  logo_win = nil
+end
+
+--- Reposition logo window after a resize.
+---@param layout table Layout from Board.calculate_layout
+function M._reposition_logo(layout)
+  if not layout.logo_row then
+    M._close_logo()
+    return
+  end
+
+  if logo_win and vim.api.nvim_win_is_valid(logo_win) then
+    local board_center = layout.start_col + math.floor(layout.board_width / 2) + 1
+    vim.api.nvim_win_set_config(logo_win, {
+      relative = "editor",
+      row = layout.logo_row,
+      col = board_center - math.floor(LOGO_WIDTH / 2),
+      width = LOGO_WIDTH,
+      height = LOGO_HEIGHT,
+    })
+  end
+end
+
+--- Check if a window handle belongs to the logo.
+---@param win integer
+---@return boolean
+function M.is_logo_win(win)
+  return logo_win ~= nil and logo_win == win
+end
+
 --- Create the header floating window.
 ---@param layout table Layout from Board.calculate_layout
 function M.create(layout)
@@ -84,6 +179,7 @@ function M.create(layout)
   end
 
   stored_width = layout.board_width
+  local has_logo = layout.logo_row ~= nil
 
   header_buf = vim.api.nvim_create_buf(false, true)
   vim.bo[header_buf].buftype = "nofile"
@@ -114,6 +210,11 @@ function M.create(layout)
   vim.wo[header_win].number = false
   vim.wo[header_win].relativenumber = false
   vim.wo[header_win].signcolumn = "no"
+
+  -- Create logo windows above the header
+  if has_logo then
+    M._create_logo(layout)
+  end
 
   current_mode = M.MODE_DEFAULT
   current_issue = nil
@@ -195,6 +296,7 @@ end
 --- Close the header window and clean up.
 function M.close()
   M._stop_staleness_timer()
+  M._close_logo()
   if header_win and vim.api.nvim_win_is_valid(header_win) then
     vim.api.nvim_win_close(header_win, true)
   end
@@ -219,7 +321,10 @@ function M.reposition(layout)
     col = layout.start_col,
     width = layout.board_width,
     height = layout.header_height,
+    title = " okuban ",
+    title_pos = "center",
   })
+  M._reposition_logo(layout)
   -- Re-render to fit new width
   M.update(current_mode, current_issue)
 end
@@ -245,6 +350,7 @@ function M._reset()
   current_issue = nil
   stored_width = nil
   _last_updated_at = nil
+  logo_win = nil
 end
 
 return M

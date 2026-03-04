@@ -17,6 +17,8 @@ local function define_highlights()
   vim.api.nvim_set_hl(0, "OkubanColumnHeader", { default = true, link = "Title" })
   vim.api.nvim_set_hl(0, "OkubanCardActive", { default = true, link = "WarningMsg" })
   vim.api.nvim_set_hl(0, "OkubanBackdrop", { default = true, bg = "#000000", fg = "#000000", blend = 40 })
+  vim.api.nvim_set_hl(0, "OkubanLogo", { default = true, link = "String" })
+  vim.api.nvim_set_hl(0, "OkubanLogoTrunk", { default = true, link = "Comment" })
 end
 
 local ns_active = vim.api.nvim_create_namespace("okuban_worktree_active")
@@ -27,8 +29,9 @@ local ns_active = vim.api.nvim_create_namespace("okuban_worktree_active")
 ---@param screen_width integer|nil
 ---@param screen_height integer|nil
 ---@param preview_lines integer|nil Height of preview pane (0 or nil to disable)
+---@param show_logo boolean|nil Show ASCII logo above header (adds 3 rows)
 ---@return table
-function Board.calculate_layout(num_cols, screen_width, screen_height, preview_lines)
+function Board.calculate_layout(num_cols, screen_width, screen_height, preview_lines, show_logo)
   local sw = screen_width or vim.o.columns
   local sh = screen_height or vim.o.lines
   preview_lines = preview_lines or 0
@@ -52,9 +55,12 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
   local header_gap = 1
   local header_space = header_inner + header_border + header_gap
 
+  -- Logo: 5 lines above header (canopy + trunk/pot)
+  local logo_height = show_logo and 5 or 0
+
   if preview_lines > 0 then
     -- Columns get 75% of available height, preview gets the rest
-    local available = total_height - header_space - 3 -- 3 = 2 (preview border) + 1 (gap)
+    local available = total_height - header_space - logo_height - 3 -- 3 = 2 (preview border) + 1 (gap)
     local board_height = math.floor(available * 0.75)
     board_height = math.floor(board_height * 0.8) -- 20% column height reduction for scroll
     if board_height < 5 then
@@ -62,15 +68,22 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
     end
     local effective_preview = available - board_height
 
-    -- Center the total visual block: header + gap + columns + gap + preview
-    local total_visual = (header_inner + header_border) + header_gap + board_height + 2 + 1 + effective_preview + 2
+    -- Center the total visual block: logo + header + gap + columns + gap + preview
+    local total_visual = logo_height
+      + (header_inner + header_border)
+      + header_gap
+      + board_height
+      + 2
+      + 1
+      + effective_preview
+      + 2
     local block_start = math.floor((sh - total_visual) / 2)
-    local header_row = block_start
-    local start_row = block_start + header_space
+    local header_row = block_start + logo_height
+    local start_row = header_row + header_space
     local start_col = math.floor((sw - board_width) / 2)
     local preview_row = start_row + board_height + 2 + 1
 
-    return {
+    local result = {
       board_width = board_width,
       board_height = board_height,
       col_width = col_width,
@@ -82,20 +95,24 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
       preview_height = effective_preview,
       preview_row = preview_row,
     }
+    if show_logo then
+      result.logo_row = block_start
+    end
+    return result
   else
-    local board_height = math.floor((total_height - header_space) * 0.8)
+    local board_height = math.floor((total_height - header_space - logo_height) * 0.8)
     if board_height < 5 then
       board_height = 5
     end
 
-    -- Center the total visual block: header + gap + columns
-    local total_visual = (header_inner + header_border) + header_gap + board_height + 2
+    -- Center the total visual block: logo + header + gap + columns
+    local total_visual = logo_height + (header_inner + header_border) + header_gap + board_height + 2
     local block_start = math.floor((sh - total_visual) / 2)
-    local header_row = block_start
-    local start_row = block_start + header_space
+    local header_row = block_start + logo_height
+    local start_row = header_row + header_space
     local start_col = math.floor((sw - board_width) / 2)
 
-    return {
+    local result = {
       board_width = board_width,
       board_height = board_height,
       col_width = col_width,
@@ -105,6 +122,10 @@ function Board.calculate_layout(num_cols, screen_width, screen_height, preview_l
       header_row = header_row,
       header_height = header_inner,
     }
+    if show_logo then
+      result.logo_row = block_start
+    end
+    return result
   end
 end
 
@@ -304,7 +325,7 @@ function Board:update_preview(issue)
   end
 
   local num_cols = #self.windows
-  local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines)
+  local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines, cfg.show_logo)
   local inner_width = layout.board_width - 2
   local sessions = claude.get_all_sessions()
   local lines =
@@ -400,6 +421,10 @@ function Board:_setup_autocommands()
     group = self.augroup,
     callback = function(ev)
       local closed_win = tonumber(ev.match)
+      -- Logo windows are decorative — don't close the board when they close
+      if header.is_logo_win(closed_win) then
+        return
+      end
       local hwin = header.get_win()
       if hwin and hwin == closed_win then
         vim.schedule(function()
@@ -440,7 +465,7 @@ function Board:open_loading()
   end
 
   local preview_lines = cfg.preview_lines or 0
-  local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines)
+  local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines, cfg.show_logo)
   self.augroup = vim.api.nvim_create_augroup("OkubanBoard", { clear = true })
 
   -- Create header bar above columns
@@ -551,7 +576,7 @@ function Board:populate(data)
 
   local cfg = config.get()
   local preview_lines = cfg.preview_lines or 0
-  local layout = Board.calculate_layout(#cols, nil, nil, preview_lines)
+  local layout = Board.calculate_layout(#cols, nil, nil, preview_lines, cfg.show_logo)
   self._layout = layout
 
   -- Verify headless session liveness before rendering badges
@@ -701,7 +726,7 @@ function Board:open(data)
 
   local cfg = config.get()
   local preview_lines = cfg.preview_lines or 0
-  local layout = Board.calculate_layout(#cols, nil, nil, preview_lines)
+  local layout = Board.calculate_layout(#cols, nil, nil, preview_lines, cfg.show_logo)
   self._layout = layout
   self.augroup = vim.api.nvim_create_augroup("OkubanBoard", { clear = true })
 
@@ -824,7 +849,7 @@ function Board:_reposition()
   local cfg = config.get()
   local preview_lines = cfg.preview_lines or 0
   local num_cols = #self.windows
-  local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines)
+  local layout = Board.calculate_layout(num_cols, nil, nil, preview_lines, cfg.show_logo)
   self._layout = layout
 
   local widths = Board.compute_column_widths(num_cols, layout.board_width, layout.gap, self._expanded_col_idx)
