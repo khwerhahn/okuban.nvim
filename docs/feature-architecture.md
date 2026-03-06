@@ -8,12 +8,15 @@ This document details the design, user flows, and implementation approaches for 
 
 1. [Preflight & Authentication](#1-preflight--authentication)
 2. [Board Layout & Rendering](#2-board-layout--rendering)
-3. [Semantic Navigation (hjkl)](#3-semantic-navigation-hjkl)
-4. [Auto-Focus on Current Issue](#4-auto-focus-on-current-issue)
-5. [Action Menu](#5-action-menu)
-6. [Onboarding & Triage](#6-onboarding--triage)
-7. [Worktree Status Indicators](#7-worktree-status-indicators)
-8. [Autonomous Claude Code Sessions](#8-autonomous-claude-code-sessions)
+3. [Preview Pane](#3-preview-pane)
+4. [Auto-Refresh & Staleness](#4-auto-refresh--staleness)
+5. [Semantic Navigation (hjkl)](#5-semantic-navigation-hjkl)
+6. [Auto-Focus on Current Issue](#6-auto-focus-on-current-issue)
+7. [Action Menu](#7-action-menu)
+8. [Onboarding & Triage](#8-onboarding--triage)
+9. [Worktree Status Indicators](#9-worktree-status-indicators)
+10. [Autonomous Claude Code Sessions](#10-autonomous-claude-code-sessions)
+11. [GitHub Projects v2 Integration](#11-github-projects-v2-integration)
 
 ---
 
@@ -243,11 +246,97 @@ Listen for `VimResized` autocommand. Recalculate column positions and widths, th
 
 ---
 
-## 3. Semantic Navigation (hjkl)
+## 3. Preview Pane
 
 ### Goal
 
-Navigate the kanban board with h/l between columns and j/k between cards. This is semantic navigation over a structured data model, not standard buffer cursor movement.
+Display contextual details about the currently selected card below the board columns, updating automatically as the user navigates between cards.
+
+### Layout
+
+The preview pane is a floating window positioned below the column windows with the same total width as the board. Height is controlled by `preview_lines` (default: 8 lines). The layout calculation allocates 75% of available height to columns and the remainder to the preview.
+
+### Content
+
+The preview pane shows structured issue details:
+
+```
+#42 Add OAuth login flow                    okuban:in-progress, type: feature
+@alice @bob                                 ○ feat/issue-42-oauth
+────────────────────────────────────────────────────────────────────────────────
+Implement OAuth 2.0 login flow with Google and GitHub providers...
+```
+
+- **Line 1**: Issue number, title, labels
+- **Line 2**: Assignees, worktree badge and branch name
+- **Line 3**: Separator
+- **Lines 4+**: Issue body excerpt (plain text, truncated to fit)
+
+If a Claude session is running for the card, the preview also shows session info (status, turns, cost).
+
+### Configuration
+
+```lua
+require("okuban").setup({
+  preview_lines = 8,  -- 0 to disable preview pane
+})
+```
+
+Setting `preview_lines = 0` hides the preview pane entirely, giving columns the full board height.
+
+---
+
+## 4. Auto-Refresh & Staleness
+
+### Goal
+
+Keep the board reasonably up-to-date without burning API quota or surprising the user with constant re-renders.
+
+### Approach: Limited Auto-Refresh
+
+On board open, the plugin starts a `vim.uv.new_timer()` that fires `auto_refresh_count` times (default: 3) at `poll_interval` intervals (default: 60 seconds). After the count is exhausted, auto-refresh stops.
+
+This means the board gets ~3 automatic updates in the first few minutes, then stays static until the user manually refreshes with `r`.
+
+### Staleness Indicator
+
+The board header shows a subtle "time since last update" indicator that updates every 30 seconds:
+
+```
+okuban ──── r/repo-name ──── 2m ago
+```
+
+This gives the user a visual cue about data freshness without being intrusive. When the board was just refreshed, the indicator shows nothing.
+
+### Manual Refresh
+
+Pressing `r` triggers an immediate refresh AND restarts the auto-refresh cycle (counter resets to `auto_refresh_count`). This means the user can "wake up" auto-refresh at any time.
+
+### Configuration
+
+```lua
+require("okuban").setup({
+  poll_interval = 60,        -- seconds between auto-refreshes
+  auto_refresh_count = 3,    -- number of auto-refreshes before stopping
+})
+```
+
+### Why Not Continuous Polling?
+
+Continuous polling (every N seconds forever) was implemented first and replaced. Problems:
+- Wastes GitHub API rate limit on inactive boards
+- Causes unexpected re-renders that disrupt navigation
+- `gh issue list` is ~400ms — visible lag on each poll
+
+The limited approach gives freshness when it matters (right after opening) and conserves resources after.
+
+---
+
+## 5. Semantic Navigation (hjkl + Arrow Keys)
+
+### Goal
+
+Navigate the kanban board with h/l between columns and j/k between cards. Arrow keys work identically. This is semantic navigation over a structured data model, not standard buffer cursor movement.
 
 ### State Model
 
@@ -282,7 +371,7 @@ The focused card receives a highlight via `nvim_buf_set_extmark` with `hl_group 
 
 ### Keymap Setup
 
-Buffer-local keymaps are set on each column buffer with `nowait = true` (ensures instant response, no waiting for multi-key sequences). All standard Neovim navigation (arrow keys, page up/down, gg/G) is either remapped or disabled in the board buffers to prevent confusion.
+Buffer-local keymaps are set on each column buffer with `nowait = true` (ensures instant response, no waiting for multi-key sequences). Arrow keys (`<Left>`, `<Right>`, `<Up>`, `<Down>`) are mapped as aliases for h/l/k/j respectively, so both navigation styles work identically. Page up/down and gg/G are either remapped or disabled in the board buffers to prevent confusion.
 
 ### Prior Art
 
@@ -291,7 +380,7 @@ Buffer-local keymaps are set on each column buffer with `nowait = true` (ensures
 
 ---
 
-## 4. Auto-Focus on Current Issue
+## 6. Auto-Focus on Current Issue
 
 ### Goal
 
@@ -347,7 +436,7 @@ Detection results are cached with a configurable TTL (default: 60 seconds). Cach
 
 ---
 
-## 5. Action Menu
+## 7. Action Menu
 
 ### Goal
 
@@ -411,7 +500,7 @@ A small floating window appears near the selected card with labeled options. Eac
 - Launches Claude Code in headless mode (`claude -p`) in the worktree directory
 - Shows a notification that the session started
 - Updates the card with a running indicator
-- See [Section 8](#8-autonomous-claude-code-sessions) for full details
+- See [Section 10](#10-autonomous-claude-code-sessions) for full details
 
 ### Alternatives Considered
 
@@ -428,7 +517,7 @@ The action list is a table. Future actions can be added:
 
 ---
 
-## 6. Onboarding & Triage
+## 8. Onboarding & Triage
 
 ### Goal
 
@@ -486,6 +575,26 @@ Tip: press Enter on a card to triage it into a column, or m to move it directly
 
 This hint disappears once at least one column has an issue.
 
+### Automated Triage: `:OkubanTriage`
+
+For repos with existing label systems, the `:OkubanTriage` command provides a semi-automated classification workflow:
+
+1. Scans all open issues (optionally including closed)
+2. Matches existing labels against a configurable pattern map (e.g., `"status: todo"` → `okuban:todo`, `"in progress"` → `okuban:in-progress`)
+3. Builds a migration plan showing which issues would be moved to which columns
+4. Applies the plan after user confirmation
+
+This is distinct from the manual board triage (action menu) — it's a one-time tool for bootstrapping an existing repo's issues into the kanban system.
+
+```lua
+require("okuban").setup({
+  triage = {
+    enabled = true,
+    include_closed = false,
+  },
+})
+```
+
 ### What We Explicitly Do NOT Build
 
 - **`:OkubanImport`** — No bulk import command. The board handles triage natively.
@@ -495,7 +604,7 @@ This hint disappears once at least one column has an issue.
 
 ---
 
-## 7. Worktree Status Indicators
+## 9. Worktree Status Indicators
 
 ### Goal
 
@@ -566,7 +675,7 @@ If the user has **polarmutex/git-worktree.nvim** installed, register a hook on `
 
 ---
 
-## 8. Autonomous Claude Code Sessions
+## 10. Autonomous Claude Code Sessions
 
 ### Goal
 
@@ -775,6 +884,54 @@ require("okuban").setup({
 - **ccpm** — Project management using GitHub Issues and git worktrees for parallel Claude agent execution
 - **@agenttools/worktree** — CLI tool that creates worktrees from issues, generates context files, launches Claude in tmux sessions
 - **claude-flow** — Multi-agent orchestration with swarm intelligence
+
+---
+
+## 11. GitHub Projects v2 Integration
+
+### Goal
+
+Provide an alternative data source for the kanban board using GitHub Projects v2 instead of (or alongside) labels. For teams that outgrow the label-based approach.
+
+### Switching Data Sources: `:OkubanSource`
+
+The `:OkubanSource` command allows switching between label-based and Projects-based boards at runtime:
+
+```vim
+:OkubanSource labels           " Switch to label-based kanban (default)
+:OkubanSource project           " Switch to auto-detected project
+:OkubanSource project 42        " Switch to specific project number
+```
+
+The choice is persisted per-repo. If the board is open when switching, it closes and reopens with the new data source.
+
+### API Layer
+
+Projects v2 uses the GitHub GraphQL API via `gh api graphql`:
+- List project items with status field values
+- Move items between status columns
+- Requires `read:project` scope (not included by default — user must run `gh auth refresh --scopes read:project`)
+
+The implementation lives in `lua/okuban/api_project.lua`, separate from the label-based API in `lua/okuban/api.lua`.
+
+### Label Migration: `:OkubanMigrate`
+
+For repos transitioning from labels to Projects v2, `:OkubanMigrate` provides a migration path:
+- Maps existing `okuban:` labels to project status field values
+- Creates project items for issues that aren't already in the project
+- Preserves the label-based board as a fallback
+
+### Configuration
+
+```lua
+require("okuban").setup({
+  source = "labels",              -- "labels" or "project"
+  project = {
+    number = nil,                 -- auto-detect or specific project number
+    status_field = "Status",      -- name of the Status field in the project
+  },
+})
+```
 
 ---
 
