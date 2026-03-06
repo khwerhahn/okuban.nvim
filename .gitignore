@@ -38,3 +38,6 @@ context/
 # Build artifacts
 dist/
 build/
+
+# VHS recordings (demo GIF source)
+vhs/

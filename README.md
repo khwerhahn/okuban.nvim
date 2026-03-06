@@ -12,6 +12,10 @@
 
 A Neovim plugin that turns GitHub issues into an interactive kanban board inside your editor. No GitHub Projects setup required — just issues and labels.
 
+<div align="center">
+  <img src="assets/demo.gif" alt="okuban.nvim demo" width="800">
+</div>
+
 ## Status
 
 **Beta** — Actively developed. Core features are functional. See [Roadmap](#roadmap) for what's shipped and what's coming.
