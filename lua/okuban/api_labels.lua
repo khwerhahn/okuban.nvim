@@ -48,27 +48,12 @@ end
 
 local ISSUE_FIELDS = "number,title,body,assignees,labels,state,updatedAt,createdAt"
 
---- Map sort config to gh CLI flags.
----@return string sort_field gh CLI --sort value
----@return string sort_order gh CLI --order value
-local function gh_sort_flags()
-  local cfg = require("okuban.config").get()
-  local sort = cfg.sort or {}
-  -- gh issue list --sort accepts: created, updated, comments
-  -- Map "number" to "created" (closest proxy — issue number correlates with creation order)
-  local field_map = { updated = "updated", created = "created", number = "created" }
-  local field = field_map[sort.field] or "updated"
-  local order = (sort.order == "asc") and "asc" or "desc"
-  return field, order
-end
-
 --- Fetch issues for a single label.
 ---@param label string The label to filter by
 ---@param state string|nil Issue state filter: "open", "closed", or "all" (default: "open")
 ---@param limit integer|nil Max issues to fetch (default: 100)
 ---@param callback fun(issues: table[]|nil, err: string|nil)
 function M.fetch_column(label, state, limit, callback)
-  local sort_field, sort_order = gh_sort_flags()
   local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
     "issue",
     "list",
@@ -80,10 +65,6 @@ function M.fetch_column(label, state, limit, callback)
     tostring(limit or 100),
     "--state",
     state or "open",
-    "--sort",
-    sort_field,
-    "--order",
-    sort_order,
   })
   vim.system(cmd, { text = true }, function(result)
     vim.schedule(function()
@@ -96,6 +77,7 @@ function M.fetch_column(label, state, limit, callback)
         callback({}, nil)
         return
       end
+      M.sort_issues(issues)
       callback(issues, nil)
     end)
   end)
@@ -142,7 +124,6 @@ end
 ---@param columns table[] The configured columns
 ---@param callback fun(issues: table[]|nil, err: string|nil)
 function M.fetch_unsorted(columns, callback)
-  local sort_field, sort_order = gh_sort_flags()
   local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
     "issue",
     "list",
@@ -152,10 +133,6 @@ function M.fetch_unsorted(columns, callback)
     "100",
     "--state",
     "open",
-    "--sort",
-    sort_field,
-    "--order",
-    sort_order,
   })
   vim.system(cmd, { text = true }, function(result)
     vim.schedule(function()
