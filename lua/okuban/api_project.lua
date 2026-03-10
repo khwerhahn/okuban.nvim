@@ -260,7 +260,7 @@ local function build_items_query(field_name)
     .. "          }\n"
     .. "          content {\n"
     .. "            ... on Issue {\n"
-    .. "              number title body state\n"
+    .. "              number title body state updatedAt createdAt\n"
     .. "              assignees(first: 5) { nodes { login } }\n"
     .. "              labels(first: 10) { nodes { name color } }\n"
     .. "              subIssuesSummary { total completed }\n"
@@ -373,6 +373,8 @@ local function transform_item(item)
     title = content.title,
     body = content.body,
     state = content.state,
+    updatedAt = content.updatedAt,
+    createdAt = content.createdAt,
     assignees = assignees,
     labels = labels,
   }
@@ -422,6 +424,15 @@ function M.build_board_data(items, status_field, show_unsorted, done_limit, init
       end
     end
   end
+
+  -- Sort each bucket according to sort config
+  local sort_issues = require("okuban.api_labels").sort_issues
+  for _, opt in ipairs(status_field.options) do
+    if buckets[opt.id] then
+      sort_issues(buckets[opt.id])
+    end
+  end
+  sort_issues(unsorted_items)
 
   -- Store full buckets for expand
   cache.full_buckets = buckets

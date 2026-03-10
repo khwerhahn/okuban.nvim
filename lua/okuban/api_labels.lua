@@ -46,7 +46,21 @@ end
 -- Fetch issues
 -- ---------------------------------------------------------------------------
 
-local ISSUE_FIELDS = "number,title,body,assignees,labels,state"
+local ISSUE_FIELDS = "number,title,body,assignees,labels,state,updatedAt,createdAt"
+
+--- Map sort config to gh CLI flags.
+---@return string sort_field gh CLI --sort value
+---@return string sort_order gh CLI --order value
+local function gh_sort_flags()
+  local cfg = require("okuban.config").get()
+  local sort = cfg.sort or {}
+  -- gh issue list --sort accepts: created, updated, comments
+  -- Map "number" to "created" (closest proxy — issue number correlates with creation order)
+  local field_map = { updated = "updated", created = "created", number = "created" }
+  local field = field_map[sort.field] or "updated"
+  local order = (sort.order == "asc") and "asc" or "desc"
+  return field, order
+end
 
 --- Fetch issues for a single label.
 ---@param label string The label to filter by
@@ -54,6 +68,7 @@ local ISSUE_FIELDS = "number,title,body,assignees,labels,state"
 ---@param limit integer|nil Max issues to fetch (default: 100)
 ---@param callback fun(issues: table[]|nil, err: string|nil)
 function M.fetch_column(label, state, limit, callback)
+  local sort_field, sort_order = gh_sort_flags()
   local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
     "issue",
     "list",
@@ -65,6 +80,10 @@ function M.fetch_column(label, state, limit, callback)
     tostring(limit or 100),
     "--state",
     state or "open",
+    "--sort",
+    sort_field,
+    "--order",
+    sort_order,
   })
   vim.system(cmd, { text = true }, function(result)
     vim.schedule(function()
@@ -82,10 +101,48 @@ function M.fetch_column(label, state, limit, callback)
   end)
 end
 
+--- Sort issues in-place using the sort config.
+--- Used for unsorted column (post-filter) and project mode.
+---@param issues table[]
+function M.sort_issues(issues)
+  local cfg = require("okuban.config").get()
+  local sort = cfg.sort or {}
+  local field = sort.field or "updated"
+  local order = sort.order or "desc"
+
+  -- Pick the date key based on sort field
+  local key
+  if field == "updated" then
+    key = "updatedAt"
+  elseif field == "created" then
+    key = "createdAt"
+  else -- "number"
+    table.sort(issues, function(a, b)
+      if order == "desc" then
+        return (a.number or 0) > (b.number or 0)
+      else
+        return (a.number or 0) < (b.number or 0)
+      end
+    end)
+    return
+  end
+
+  table.sort(issues, function(a, b)
+    local va = a[key] or ""
+    local vb = b[key] or ""
+    if order == "desc" then
+      return va > vb
+    else
+      return va < vb
+    end
+  end)
+end
+
 --- Fetch unsorted issues (open issues without any okuban: label).
 ---@param columns table[] The configured columns
 ---@param callback fun(issues: table[]|nil, err: string|nil)
 function M.fetch_unsorted(columns, callback)
+  local sort_field, sort_order = gh_sort_flags()
   local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
     "issue",
     "list",
@@ -95,6 +152,10 @@ function M.fetch_unsorted(columns, callback)
     "100",
     "--state",
     "open",
+    "--sort",
+    sort_field,
+    "--order",
+    sort_order,
   })
   vim.system(cmd, { text = true }, function(result)
     vim.schedule(function()
@@ -131,6 +192,8 @@ function M.fetch_unsorted(columns, callback)
         end
       end
 
+      -- Apply Lua-side sort since the filtered subset may not preserve gh CLI order
+      M.sort_issues(unsorted)
       callback(unsorted, nil)
     end)
   end)
