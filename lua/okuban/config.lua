@@ -62,6 +62,10 @@ local M = {}
 ---@field source_project string|false
 ---@field migrate string|false
 
+---@class OkubanSortConfig
+---@field field "updated"|"created"|"number" Sort field (default: "updated")
+---@field order "desc"|"asc" Sort order (default: "desc")
+
 ---@class OkubanTriageConfig
 ---@field enabled boolean Enable auto-triage after label setup (default: true)
 ---@field include_closed boolean Include closed issues in triage (default: true)
@@ -82,6 +86,7 @@ local M = {}
 ---@field show_logo boolean Show ASCII bonsai logo above header (default: true)
 ---@field keymaps OkubanKeymaps
 ---@field global_keymaps OkubanGlobalKeymaps
+---@field sort OkubanSortConfig
 ---@field claude OkubanClaudeConfig
 ---@field triage OkubanTriageConfig
 
@@ -99,6 +104,10 @@ local defaults = {
     number = nil,
     owner = nil,
     done_limit = 20,
+  },
+  sort = {
+    field = "updated",
+    order = "desc",
   },
   show_logo = true,
   show_unsorted = true,

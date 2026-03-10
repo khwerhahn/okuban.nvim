@@ -46,7 +46,7 @@ end
 -- Fetch issues
 -- ---------------------------------------------------------------------------
 
-local ISSUE_FIELDS = "number,title,body,assignees,labels,state"
+local ISSUE_FIELDS = "number,title,body,assignees,labels,state,updatedAt,createdAt"
 
 --- Fetch issues for a single label.
 ---@param label string The label to filter by
@@ -77,8 +77,46 @@ function M.fetch_column(label, state, limit, callback)
         callback({}, nil)
         return
       end
+      M.sort_issues(issues)
       callback(issues, nil)
     end)
+  end)
+end
+
+--- Sort issues in-place using the sort config.
+--- Used for unsorted column (post-filter) and project mode.
+---@param issues table[]
+function M.sort_issues(issues)
+  local cfg = require("okuban.config").get()
+  local sort = cfg.sort or {}
+  local field = sort.field or "updated"
+  local order = sort.order or "desc"
+
+  -- Pick the date key based on sort field
+  local key
+  if field == "updated" then
+    key = "updatedAt"
+  elseif field == "created" then
+    key = "createdAt"
+  else -- "number"
+    table.sort(issues, function(a, b)
+      if order == "desc" then
+        return (a.number or 0) > (b.number or 0)
+      else
+        return (a.number or 0) < (b.number or 0)
+      end
+    end)
+    return
+  end
+
+  table.sort(issues, function(a, b)
+    local va = a[key] or ""
+    local vb = b[key] or ""
+    if order == "desc" then
+      return va > vb
+    else
+      return va < vb
+    end
   end)
 end
 
@@ -131,6 +169,8 @@ function M.fetch_unsorted(columns, callback)
         end
       end
 
+      -- Apply Lua-side sort since the filtered subset may not preserve gh CLI order
+      M.sort_issues(unsorted)
       callback(unsorted, nil)
     end)
   end)
