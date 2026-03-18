@@ -23,6 +23,7 @@ function M._register_global_keymaps()
     { key = gk.source_labels, cmd = "<cmd>OkubanSource labels<cr>", desc = "Switch to label source" },
     { key = gk.source_project, cmd = "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
     { key = gk.migrate, cmd = "<cmd>OkubanMigrate project<cr>", desc = "Migrate labels to project" },
+    { key = gk.popup, cmd = "<cmd>OkubanPopup<cr>", desc = "Open kanban board in tmux popup" },
   }
   for _, m in ipairs(map) do
     if m.key and m.key ~= false then
@@ -181,6 +182,18 @@ end
 function M.close()
   local Board = require("okuban.ui.board")
   Board.close_instance()
+end
+
+--- Open the okuban board in a tmux display-popup centered above all panes.
+--- Requires tmux 3.2+. The popup uses OKUBAN_POPUP=1 so pressing `q` quits Neovim.
+function M.open_popup()
+  local tmux = require("okuban.tmux")
+  local cfg = config.get()
+  local tmux_cfg = cfg.tmux or {}
+  tmux.open_board_popup({
+    width = tmux_cfg.popup_width,
+    height = tmux_cfg.popup_height,
+  })
 end
 
 --- Refresh the kanban board.

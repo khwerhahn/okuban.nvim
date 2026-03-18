@@ -182,6 +182,42 @@ function M.write_launcher_script(cmd, sentinel)
   return script
 end
 
+--- Build the tmux display-popup command to open okuban in a floating overlay.
+--- Sets OKUBAN_POPUP=1 so the board knows to quit Neovim on close.
+---@param opts { width?: string, height?: string }|nil
+---@return string[] cmd
+function M.build_popup_command(opts)
+  opts = opts or {}
+  local width = opts.width or "90%"
+  local height = opts.height or "90%"
+  return {
+    "tmux",
+    "display-popup",
+    "-xC",
+    "-yC",
+    "-w",
+    width,
+    "-h",
+    height,
+    "-e",
+    "OKUBAN_POPUP=1",
+    "-E",
+    "nvim +Okuban",
+  }
+end
+
+--- Open the okuban board in a tmux display-popup centered above all panes.
+--- Requires tmux 3.2+. Shows a warning if not inside a tmux session.
+---@param opts { width?: string, height?: string }|nil
+function M.open_board_popup(opts)
+  if not M.is_available() then
+    vim.notify("okuban: OkubanPopup requires an active tmux session (TMUX not set)", vim.log.levels.WARN)
+    return
+  end
+  local cmd = M.build_popup_command(opts)
+  vim.system(cmd, { text = true }):wait()
+end
+
 --- Write prompt text to a temp file for safe passing to Claude via tmux.
 --- This avoids all shell quoting issues with complex multi-line prompts.
 ---@param text string Prompt text

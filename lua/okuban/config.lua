@@ -28,6 +28,10 @@ local M = {}
 ---@field direction "h"|"v" Split direction: h=side-by-side, v=top-bottom (default: "h")
 ---@field size string|nil Size for new pane (e.g., "50%"), nil=tmux default
 
+---@class OkubanTmuxConfig
+---@field popup_width string Width of the tmux display-popup (default: "90%")
+---@field popup_height string Height of the tmux display-popup (default: "90%")
+
 ---@class OkubanAgentTeamsConfig
 ---@field enabled boolean EXPERIMENTAL: Enable agent teams (default: false)
 ---@field teammate_mode "tmux"|"auto" Teammate mode (default: "tmux")
@@ -61,6 +65,7 @@ local M = {}
 ---@field source_labels string|false
 ---@field source_project string|false
 ---@field migrate string|false
+---@field popup string|false Open board in a tmux display-popup (false = disabled, requires tmux)
 
 ---@class OkubanSortConfig
 ---@field field "updated"|"created"|"number" Sort field (default: "updated")
@@ -75,6 +80,7 @@ local M = {}
 ---@field source "labels"|"project" Data source: "labels" (default) or "project"
 ---@field columns OkubanColumn[]
 ---@field project OkubanProjectConfig
+---@field tmux OkubanTmuxConfig
 ---@field show_unsorted boolean
 ---@field skip_preflight boolean
 ---@field github_hostname string|nil
@@ -143,6 +149,11 @@ local defaults = {
     source_labels = "<leader>bl",
     source_project = "<leader>bp",
     migrate = "<leader>bm",
+    popup = false,
+  },
+  tmux = {
+    popup_width = "90%",
+    popup_height = "90%",
   },
   claude = {
     enabled = true,

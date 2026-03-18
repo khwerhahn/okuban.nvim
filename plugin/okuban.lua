@@ -41,6 +41,10 @@ vim.api.nvim_create_user_command("OkubanTriage", function()
   end)
 end, { desc = "Triage existing issues into okuban kanban columns" })
 
+vim.api.nvim_create_user_command("OkubanPopup", function()
+  require("okuban").open_popup()
+end, { desc = "Open okuban kanban board in a tmux display-popup" })
+
 vim.api.nvim_create_user_command("OkubanMigrate", function(cmd)
   local args = vim.split(cmd.args, "%s+", { trimempty = true })
   local target = args[1]

@@ -34,6 +34,87 @@ describe("okuban.tmux", function()
     end)
   end)
 
+  describe("build_popup_command", function()
+    it("builds display-popup command with defaults", function()
+      local cmd = tmux.build_popup_command()
+      assert.are.equal("tmux", cmd[1])
+      assert.are.equal("display-popup", cmd[2])
+      assert.are.equal("-xC", cmd[3])
+      assert.are.equal("-yC", cmd[4])
+      assert.are.equal("-w", cmd[5])
+      assert.are.equal("90%", cmd[6])
+      assert.are.equal("-h", cmd[7])
+      assert.are.equal("90%", cmd[8])
+      assert.are.equal("-e", cmd[9])
+      assert.are.equal("OKUBAN_POPUP=1", cmd[10])
+      assert.are.equal("-E", cmd[11])
+      assert.are.equal("nvim +Okuban", cmd[12])
+    end)
+
+    it("respects custom width and height", function()
+      local cmd = tmux.build_popup_command({ width = "80%", height = "70%" })
+      assert.are.equal("80%", cmd[6])
+      assert.are.equal("70%", cmd[8])
+    end)
+
+    it("sets OKUBAN_POPUP=1 env var", function()
+      local cmd = tmux.build_popup_command()
+      local found = false
+      for i, v in ipairs(cmd) do
+        if v == "-e" and cmd[i + 1] == "OKUBAN_POPUP=1" then
+          found = true
+        end
+      end
+      assert.is_true(found, "expected -e OKUBAN_POPUP=1 in command")
+    end)
+  end)
+
+  describe("open_board_popup", function()
+    it("shows warning when tmux is not available", function()
+      local orig = vim.env.TMUX
+      vim.env.TMUX = nil
+      local warned = false
+      local orig_notify = vim.notify
+      vim.notify = function(_, level)
+        if level == vim.log.levels.WARN then
+          warned = true
+        end
+      end
+      tmux.open_board_popup()
+      vim.notify = orig_notify
+      vim.env.TMUX = orig
+      assert.is_true(warned)
+    end)
+
+    it("calls tmux display-popup when in tmux session", function()
+      local orig = vim.env.TMUX
+      vim.env.TMUX = "/tmp/tmux-1000/default,12345,0"
+      local calls = helpers.mock_vim_system({ { code = 0 } })
+      tmux.open_board_popup()
+      vim.env.TMUX = orig
+      assert.are.equal(1, #calls)
+      assert.are.equal("tmux", calls[1].cmd[1])
+      assert.are.equal("display-popup", calls[1].cmd[2])
+    end)
+
+    it("passes custom width and height to the command", function()
+      local orig = vim.env.TMUX
+      vim.env.TMUX = "/tmp/tmux-1000/default,12345,0"
+      local calls = helpers.mock_vim_system({ { code = 0 } })
+      tmux.open_board_popup({ width = "75%", height = "65%" })
+      vim.env.TMUX = orig
+      local cmd = calls[1].cmd
+      local w_idx = nil
+      for i, v in ipairs(cmd) do
+        if v == "-w" then
+          w_idx = i
+        end
+      end
+      assert.is_not_nil(w_idx)
+      assert.are.equal("75%", cmd[w_idx + 1])
+    end)
+  end)
+
   describe("build_launch_command", function()
     it("builds tmux new-window command with correct structure", function()
       local cmd, sentinel = tmux.build_launch_command({
