@@ -55,3 +55,22 @@ vim.api.nvim_create_user_command("OkubanMigrate", function(cmd)
   end
   require("okuban").migrate_to_project(number)
 end, { desc = "Migrate label board into a GitHub Project", nargs = "+" })
+
+-- In popup mode (OKUBAN_POPUP=1): suppress the intro screen and open the board at
+-- VimEnter time. This fires before any -c commands and before dashboard plugins,
+-- so the user sees the board immediately when the popup window appears.
+if vim.env.OKUBAN_POPUP == "1" then
+  vim.opt.shortmess:append("I")
+  -- Disable dashboard-nvim so it doesn't flash before the board appears
+  vim.g.loaded_dashboard = 1
+  vim.api.nvim_create_autocmd("VimEnter", {
+    once = true,
+    nested = true,
+    callback = function()
+      -- vim.schedule lets lazy.nvim finish its final setup pass before we open
+      vim.schedule(function()
+        require("okuban").open()
+      end)
+    end,
+  })
+end

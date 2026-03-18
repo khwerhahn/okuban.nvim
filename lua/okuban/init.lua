@@ -61,16 +61,31 @@ function M._load_saved_state()
 end
 
 --- Open the kanban board.
+--- When inside a tmux session and tmux.prefer_popup = true (the default), this opens
+--- a display-popup that floats over all panes. Falls back to inline Neovim floating
+--- windows when not in tmux, or when prefer_popup = false.
 function M.open()
   -- Restore saved per-repo state on first open
   M._load_saved_state()
 
+  -- Route to tmux popup when inside a tmux session and prefer_popup is enabled.
+  -- This makes <leader>bb span all panes instead of only the current Neovim pane.
+  -- Skip when already inside a popup (OKUBAN_POPUP=1) to prevent nested popups.
+  local cfg = config.get()
+  if cfg.tmux.prefer_popup and require("okuban.tmux").is_available() and vim.env.OKUBAN_POPUP ~= "1" then
+    M.open_popup()
+    return
+  end
+
   local Board = require("okuban.ui.board")
   local board = Board.get_instance()
 
-  -- If board is already open, close it first (toggle behavior)
+  -- Toggle behavior: close if already open — but not in popup mode, where the
+  -- VimEnter autocmd and any +Okuban command may both call open().
   if board:is_open() then
-    board:close()
+    if vim.env.OKUBAN_POPUP ~= "1" then
+      board:close()
+    end
     return
   end
 

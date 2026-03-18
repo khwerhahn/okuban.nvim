@@ -29,6 +29,9 @@ local M = {}
 ---@field size string|nil Size for new pane (e.g., "50%"), nil=tmux default
 
 ---@class OkubanTmuxConfig
+---@field prefer_popup boolean When true and inside a tmux session, :Okuban opens as a
+---                            display-popup overlay spanning all panes (default: true).
+---                            Set to false to always use inline Neovim floating windows.
 ---@field popup_width string Width of the tmux display-popup (default: "90%")
 ---@field popup_height string Height of the tmux display-popup (default: "90%")
 
@@ -151,9 +154,17 @@ local defaults = {
     migrate = "<leader>bm",
     popup = false,
   },
+  -- tmux integration settings
+  -- When prefer_popup = true (default), opening the board from inside a tmux session
+  -- launches a display-popup that floats over ALL panes — ideal for multi-pane layouts.
+  -- The popup closes cleanly when you press q or <Esc>.
+  --
+  -- To always use the inline Neovim floating-window board instead:
+  --   tmux = { prefer_popup = false }
   tmux = {
-    popup_width = "90%",
-    popup_height = "90%",
+    prefer_popup = true,   -- use display-popup when in tmux (spans all panes)
+    popup_width = "90%",   -- width of the popup (percentage of terminal width)
+    popup_height = "90%",  -- height of the popup (percentage of terminal height)
   },
   claude = {
     enabled = true,

@@ -261,7 +261,7 @@ global_keymaps                                 *okuban-config-global-keymaps*
   Default prefix: `<leader>b` (b for board).
 
   Key              Default            Command ~
-  open             `<leader>bb`       `:Okuban`
+  open             `<leader>bb`       `:Okuban` (popup in tmux, inline otherwise)
   close            `<leader>bq`       `:OkubanClose`
   refresh          `<leader>br`       `:OkubanRefresh`
   setup            `<leader>bs`       `:OkubanSetup`
@@ -269,6 +269,7 @@ global_keymaps                                 *okuban-config-global-keymaps*
   source_labels    `<leader>bl`       `:OkubanSource labels`
   source_project   `<leader>bp`       `:OkubanSource project`
   migrate          `<leader>bm`       `:OkubanMigrate project`
+  popup            (disabled)         `:OkubanPopup` (explicit popup, no fallback)
 
   Example: >lua
     require("okuban").setup({
@@ -307,6 +308,21 @@ claude                                               *okuban-config-claude*
   - `agent_teams` (table): EXPERIMENTAL Claude agent teams.
     - `enabled` (boolean): Default: false.
     - `teammate_mode` (string): "tmux" or "auto". Default: "tmux".
+
+tmux                                                   *okuban-config-tmux*
+  Type: `table`
+  tmux display-popup integration settings.
+  - `prefer_popup` (boolean): When true (default) and inside a tmux session,
+    `:Okuban` opens as a `display-popup` overlay spanning all panes. Set to
+    false to always use inline Neovim floating windows. Default: true.
+  - `popup_width` (string): Width of the popup. Default: "90%".
+  - `popup_height` (string): Height of the popup. Default: "90%".
+
+  To opt out of the popup behavior: >lua
+    require("okuban").setup({
+      tmux = { prefer_popup = false },
+    })
+<
 
 Highlight Groups ~
                                                     *okuban-highlight-groups*

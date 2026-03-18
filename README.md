@@ -124,7 +124,7 @@ okuban.nvim registers global keymaps on `setup()` using the `<leader>b` prefix (
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `<leader>bb` | `:Okuban` | Open kanban board |
+| `<leader>bb` | `:Okuban` | Open kanban board (popup in tmux, inline otherwise) |
 | `<leader>bq` | `:OkubanClose` | Close kanban board |
 | `<leader>br` | `:OkubanRefresh` | Refresh kanban board |
 | `<leader>bs` | `:OkubanSetup` | Create kanban labels |
@@ -260,6 +260,19 @@ require("okuban").setup({
       enabled = false,          -- EXPERIMENTAL: Claude agent teams
       teammate_mode = "tmux",   -- "tmux" or "auto"
     },
+  },
+
+  -- tmux integration
+  -- When prefer_popup = true (default), opening the board from inside a tmux
+  -- session launches a display-popup that floats over ALL panes — ideal for
+  -- multi-pane layouts. The popup closes cleanly when you press q or <Esc>.
+  --
+  -- To always use the inline Neovim floating-window board instead:
+  --   tmux = { prefer_popup = false }
+  tmux = {
+    prefer_popup = true,    -- use display-popup when in tmux (spans all panes)
+    popup_width = "90%",    -- width of the popup
+    popup_height = "90%",   -- height of the popup
   },
 })
 ```
