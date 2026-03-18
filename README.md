@@ -157,6 +157,22 @@ require("okuban").setup({
 :Okuban
 ```
 
+### tmux Setup (recommended)
+
+If you use tmux, add this line to your `~/.tmux.conf` to open the board as a full-terminal popup above all panes with `prefix + b`:
+
+```tmux
+# okuban.nvim — open kanban board as a floating popup above all panes
+# Requires tmux 3.2+ and okuban.nvim installed in Neovim
+bind-key b display-popup -xC -yC -w 90% -h 90% -e OKUBAN_POPUP=1 -E "nvim +Okuban"
+```
+
+Then reload your config (`prefix + r`, or `tmux source ~/.tmux.conf`).
+
+This is separate from — and complementary to — the `<leader>bb` Neovim keymap. Both open the same board; the tmux binding works from any pane, even when Neovim is not focused.
+
+> **Why `OKUBAN_POPUP=1`?** This env var tells okuban it's running inside a tmux popup so pressing `q` quits Neovim entirely (closing the popup) instead of just closing the board window.
+
 ## Configuration
 
 All options with their defaults:

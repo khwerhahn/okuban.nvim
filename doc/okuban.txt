@@ -48,6 +48,20 @@ Using lazy.nvim: >lua
 
 Then run `:OkubanSetup` to create the kanban labels on your repo.
 
+tmux setup (recommended) ~
+                                                          *okuban-tmux-setup*
+If you use tmux, add this to your `~/.tmux.conf` to open the board as a
+floating popup above all panes with `prefix + b` (requires tmux 3.2+): >tmux
+  bind-key b display-popup -xC -yC -w 90% -h 90% -e OKUBAN_POPUP=1 -E "nvim +Okuban"
+<
+Reload with `tmux source ~/.tmux.conf` (or `prefix + r` if you have that bound).
+
+The `OKUBAN_POPUP=1` env var tells okuban it is inside a popup so pressing
+`q` quits Neovim entirely (which closes the popup window).
+
+This complements the `<leader>bb` Neovim keymap — both open the same board.
+The tmux binding works from any pane, even when Neovim is not focused.
+
 ==============================================================================
 4. COMMANDS                                                 *okuban-commands*
 
