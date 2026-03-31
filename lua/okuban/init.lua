@@ -95,8 +95,8 @@ function M.open()
     end
 
     -- For project mode: ensure scope + project selection before opening
-    local cfg = config.get()
-    if cfg.source == "project" and not cfg.project.number then
+    local current_cfg = config.get()
+    if current_cfg.source == "project" and not current_cfg.project.number then
       api.check_project_scope(function(scope_ok, scope_err)
         if not scope_ok then
           utils.notify(scope_err, vim.log.levels.ERROR)
@@ -106,12 +106,12 @@ function M.open()
           if not number then
             return
           end
-          cfg.project.number = number
+          current_cfg.project.number = number
           -- Persist the project selection
           utils.save_state({
             source = "project",
             project_number = number,
-            project_owner = cfg.project.owner,
+            project_owner = current_cfg.project.owner,
           })
           -- Now open the board with the selected project
           board:open_loading()
