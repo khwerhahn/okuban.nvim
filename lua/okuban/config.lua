@@ -162,9 +162,9 @@ local defaults = {
   -- To always use the inline Neovim floating-window board instead:
   --   tmux = { prefer_popup = false }
   tmux = {
-    prefer_popup = true,   -- use display-popup when in tmux (spans all panes)
-    popup_width = "90%",   -- width of the popup (percentage of terminal width)
-    popup_height = "90%",  -- height of the popup (percentage of terminal height)
+    prefer_popup = true, -- use display-popup when in tmux (spans all panes)
+    popup_width = "90%", -- width of the popup (percentage of terminal width)
+    popup_height = "90%", -- height of the popup (percentage of terminal height)
   },
   claude = {
     enabled = true,
