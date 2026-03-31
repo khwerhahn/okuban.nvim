@@ -340,6 +340,39 @@ describe("okuban.ui.navigation", function()
     end)
   end)
 
+  describe("clamp_position", function()
+    it("clamps card_index when cards are removed", function()
+      local board = mock_board({ 5, 3 })
+      local nav = Navigation.new(board)
+      nav.card_index = 5 -- at last card in col 1
+      -- Remove 2 cards from col 1
+      board.columns[1].issues = { board.columns[1].issues[1], board.columns[1].issues[2], board.columns[1].issues[3] }
+      nav:clamp_position()
+      assert.equals(3, nav.card_index)
+    end)
+
+    it("clamps column_index when columns are removed", function()
+      local board = mock_board({ 3, 2 })
+      local nav = Navigation.new(board)
+      nav.column_index = 2
+      nav.card_index = 2
+      -- Remove col 2
+      table.remove(board.columns, 2)
+      nav:clamp_position()
+      assert.equals(1, nav.column_index)
+      -- card_index 2 is valid for col 1 (which has 3 cards)
+      assert.equals(2, nav.card_index)
+    end)
+
+    it("resets _tree_sub_index", function()
+      local board = mock_board({ 3 })
+      local nav = Navigation.new(board)
+      nav._tree_sub_index = 2
+      nav:clamp_position()
+      assert.equals(0, nav._tree_sub_index)
+    end)
+  end)
+
   describe("tree navigation", function()
     it("starts with _tree_sub_index = 0", function()
       local board = mock_board({ 3 })

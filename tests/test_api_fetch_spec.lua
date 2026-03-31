@@ -334,21 +334,25 @@ describe("okuban.api fetch", function()
   end)
 
   describe("fetch_sub_issue_counts", function()
-    it("returns empty table on empty input", function()
+    it("returns empty tables on empty input", function()
       local done = false
-      local result = nil
+      local result_counts = nil
+      local result_parents = nil
       -- Need api_labels module directly for label-mode fetch
       local api_labels = require("okuban.api_labels")
-      api_labels.fetch_sub_issue_counts({}, function(counts)
+      api_labels.fetch_sub_issue_counts({}, function(counts, parent_map)
         done = true
-        result = counts
+        result_counts = counts
+        result_parents = parent_map
       end)
 
       vim.wait(1000, function()
         return done
       end)
-      assert.is_not_nil(result)
-      assert.equals(0, vim.tbl_count(result))
+      assert.is_not_nil(result_counts)
+      assert.equals(0, vim.tbl_count(result_counts))
+      assert.is_not_nil(result_parents)
+      assert.equals(0, vim.tbl_count(result_parents))
     end)
 
     it("parses GraphQL response correctly", function()
@@ -357,9 +361,9 @@ describe("okuban.api fetch", function()
       local graphql_response = vim.json.encode({
         data = {
           repository = {
-            i10 = { subIssuesSummary = { total = 3, completed = 1 } },
-            i20 = { subIssuesSummary = { total = 0, completed = 0 } },
-            i30 = { subIssuesSummary = { total = 5, completed = 5 } },
+            i10 = { subIssuesSummary = { total = 3, completed = 1 }, parent = vim.NIL },
+            i20 = { subIssuesSummary = { total = 0, completed = 0 }, parent = vim.NIL },
+            i30 = { subIssuesSummary = { total = 5, completed = 5 }, parent = vim.NIL },
           },
         },
       })
@@ -374,9 +378,11 @@ describe("okuban.api fetch", function()
 
       local done = false
       local result = nil
-      api_labels.fetch_sub_issue_counts({ 10, 20, 30 }, function(counts)
+      local parents = nil
+      api_labels.fetch_sub_issue_counts({ 10, 20, 30 }, function(counts, parent_map)
         done = true
         result = counts
+        parents = parent_map
       end)
 
       vim.wait(2000, function()
@@ -394,6 +400,50 @@ describe("okuban.api fetch", function()
       assert.is_not_nil(result[30])
       assert.equals(5, result[30].total)
       assert.equals(5, result[30].completed)
+      -- No parents (none are sub-issues)
+      assert.is_not_nil(parents)
+      assert.equals(0, vim.tbl_count(parents))
+    end)
+
+    it("detects sub-issues via parent field", function()
+      local graphql_response = vim.json.encode({
+        data = {
+          repository = {
+            i10 = { subIssuesSummary = { total = 2, completed = 0 }, parent = vim.NIL },
+            i11 = { subIssuesSummary = { total = 0, completed = 0 }, parent = { number = 10 } },
+            i12 = { subIssuesSummary = { total = 0, completed = 0 }, parent = { number = 10 } },
+          },
+        },
+      })
+      helpers.mock_vim_system({
+        { code = 0, stdout = "alice|myrepo" },
+        { code = 0, stdout = graphql_response },
+      })
+
+      local api_labels = require("okuban.api_labels")
+      api._reset_repo_info()
+
+      local done = false
+      local result_counts = nil
+      local result_parents = nil
+      api_labels.fetch_sub_issue_counts({ 10, 11, 12 }, function(counts, parent_map)
+        done = true
+        result_counts = counts
+        result_parents = parent_map
+      end)
+
+      vim.wait(2000, function()
+        return done
+      end)
+
+      -- Issue 10 is a parent with 2 sub-issues
+      assert.is_not_nil(result_counts[10])
+      assert.equals(2, result_counts[10].total)
+      -- Issues 11 and 12 are sub-issues of 10
+      assert.equals(10, result_parents[11])
+      assert.equals(10, result_parents[12])
+      -- Issue 10 is NOT a sub-issue
+      assert.is_nil(result_parents[10])
     end)
 
     it("handles API errors gracefully", function()
@@ -407,7 +457,7 @@ describe("okuban.api fetch", function()
 
       local done = false
       local result = nil
-      api_labels.fetch_sub_issue_counts({ 10, 20 }, function(counts)
+      api_labels.fetch_sub_issue_counts({ 10, 20 }, function(counts, _parent_map)
         done = true
         result = counts
       end)
