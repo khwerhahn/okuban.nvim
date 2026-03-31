@@ -48,6 +48,20 @@ Using lazy.nvim: >lua
 
 Then run `:OkubanSetup` to create the kanban labels on your repo.
 
+tmux setup (recommended) ~
+                                                          *okuban-tmux-setup*
+If you use tmux, add this to your `~/.tmux.conf` to open the board as a
+floating popup above all panes with `prefix + b` (requires tmux 3.2+): >tmux
+  bind-key b display-popup -xC -yC -w 90% -h 90% -e OKUBAN_POPUP=1 -E "nvim +Okuban"
+<
+Reload with `tmux source ~/.tmux.conf` (or `prefix + r` if you have that bound).
+
+The `OKUBAN_POPUP=1` env var tells okuban it is inside a popup so pressing
+`q` quits Neovim entirely (which closes the popup window).
+
+This complements the `<leader>bb` Neovim keymap — both open the same board.
+The tmux binding works from any pane, even when Neovim is not focused.
+
 ==============================================================================
 4. COMMANDS                                                 *okuban-commands*
 
@@ -261,7 +275,7 @@ global_keymaps                                 *okuban-config-global-keymaps*
   Default prefix: `<leader>b` (b for board).
 
   Key              Default            Command ~
-  open             `<leader>bb`       `:Okuban`
+  open             `<leader>bb`       `:Okuban` (popup in tmux, inline otherwise)
   close            `<leader>bq`       `:OkubanClose`
   refresh          `<leader>br`       `:OkubanRefresh`
   setup            `<leader>bs`       `:OkubanSetup`
@@ -269,6 +283,7 @@ global_keymaps                                 *okuban-config-global-keymaps*
   source_labels    `<leader>bl`       `:OkubanSource labels`
   source_project   `<leader>bp`       `:OkubanSource project`
   migrate          `<leader>bm`       `:OkubanMigrate project`
+  popup            (disabled)         `:OkubanPopup` (explicit popup, no fallback)
 
   Example: >lua
     require("okuban").setup({
@@ -307,6 +322,21 @@ claude                                               *okuban-config-claude*
   - `agent_teams` (table): EXPERIMENTAL Claude agent teams.
     - `enabled` (boolean): Default: false.
     - `teammate_mode` (string): "tmux" or "auto". Default: "tmux".
+
+tmux                                                   *okuban-config-tmux*
+  Type: `table`
+  tmux display-popup integration settings.
+  - `prefer_popup` (boolean): When true (default) and inside a tmux session,
+    `:Okuban` opens as a `display-popup` overlay spanning all panes. Set to
+    false to always use inline Neovim floating windows. Default: true.
+  - `popup_width` (string): Width of the popup. Default: "90%".
+  - `popup_height` (string): Height of the popup. Default: "90%".
+
+  To opt out of the popup behavior: >lua
+    require("okuban").setup({
+      tmux = { prefer_popup = false },
+    })
+<
 
 Highlight Groups ~
                                                     *okuban-highlight-groups*

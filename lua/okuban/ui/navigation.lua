@@ -602,6 +602,9 @@ function Navigation:setup_keymaps(buf)
 
   vim.keymap.set("n", keymaps.close, function()
     self.board:close()
+    if vim.env.OKUBAN_POPUP == "1" then
+      vim.cmd("qa!")
+    end
   end, opts)
 
   -- Esc: collapse tree → exit issue mode → close board (cascade)
@@ -619,6 +622,9 @@ function Navigation:setup_keymaps(buf)
         self:toggle_issue_mode()
       else
         self.board:close()
+        if vim.env.OKUBAN_POPUP == "1" then
+          vim.cmd("qa!")
+        end
       end
     end, opts)
   end

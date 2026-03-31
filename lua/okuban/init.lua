@@ -23,6 +23,7 @@ function M._register_global_keymaps()
     { key = gk.source_labels, cmd = "<cmd>OkubanSource labels<cr>", desc = "Switch to label source" },
     { key = gk.source_project, cmd = "<cmd>OkubanSource project<cr>", desc = "Switch to project source" },
     { key = gk.migrate, cmd = "<cmd>OkubanMigrate project<cr>", desc = "Migrate labels to project" },
+    { key = gk.popup, cmd = "<cmd>OkubanPopup<cr>", desc = "Open kanban board in tmux popup" },
   }
   for _, m in ipairs(map) do
     if m.key and m.key ~= false then
@@ -60,16 +61,31 @@ function M._load_saved_state()
 end
 
 --- Open the kanban board.
+--- When inside a tmux session and tmux.prefer_popup = true (the default), this opens
+--- a display-popup that floats over all panes. Falls back to inline Neovim floating
+--- windows when not in tmux, or when prefer_popup = false.
 function M.open()
   -- Restore saved per-repo state on first open
   M._load_saved_state()
 
+  -- Route to tmux popup when inside a tmux session and prefer_popup is enabled.
+  -- This makes <leader>bb span all panes instead of only the current Neovim pane.
+  -- Skip when already inside a popup (OKUBAN_POPUP=1) to prevent nested popups.
+  local cfg = config.get()
+  if cfg.tmux.prefer_popup and require("okuban.tmux").is_available() and vim.env.OKUBAN_POPUP ~= "1" then
+    M.open_popup()
+    return
+  end
+
   local Board = require("okuban.ui.board")
   local board = Board.get_instance()
 
-  -- If board is already open, close it first (toggle behavior)
+  -- Toggle behavior: close if already open — but not in popup mode, where the
+  -- VimEnter autocmd and any +Okuban command may both call open().
   if board:is_open() then
-    board:close()
+    if vim.env.OKUBAN_POPUP ~= "1" then
+      board:close()
+    end
     return
   end
 
@@ -79,8 +95,8 @@ function M.open()
     end
 
     -- For project mode: ensure scope + project selection before opening
-    local cfg = config.get()
-    if cfg.source == "project" and not cfg.project.number then
+    local current_cfg = config.get()
+    if current_cfg.source == "project" and not current_cfg.project.number then
       api.check_project_scope(function(scope_ok, scope_err)
         if not scope_ok then
           utils.notify(scope_err, vim.log.levels.ERROR)
@@ -90,12 +106,12 @@ function M.open()
           if not number then
             return
           end
-          cfg.project.number = number
+          current_cfg.project.number = number
           -- Persist the project selection
           utils.save_state({
             source = "project",
             project_number = number,
-            project_owner = cfg.project.owner,
+            project_owner = current_cfg.project.owner,
           })
           -- Now open the board with the selected project
           board:open_loading()
@@ -181,6 +197,18 @@ end
 function M.close()
   local Board = require("okuban.ui.board")
   Board.close_instance()
+end
+
+--- Open the okuban board in a tmux display-popup centered above all panes.
+--- Requires tmux 3.2+. The popup uses OKUBAN_POPUP=1 so pressing `q` quits Neovim.
+function M.open_popup()
+  local tmux = require("okuban.tmux")
+  local cfg = config.get()
+  local tmux_cfg = cfg.tmux or {}
+  tmux.open_board_popup({
+    width = tmux_cfg.popup_width,
+    height = tmux_cfg.popup_height,
+  })
 end
 
 --- Refresh the kanban board.

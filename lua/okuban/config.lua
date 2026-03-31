@@ -28,6 +28,13 @@ local M = {}
 ---@field direction "h"|"v" Split direction: h=side-by-side, v=top-bottom (default: "h")
 ---@field size string|nil Size for new pane (e.g., "50%"), nil=tmux default
 
+---@class OkubanTmuxConfig
+---@field prefer_popup boolean When true and inside a tmux session, :Okuban opens as a
+---                            display-popup overlay spanning all panes (default: true).
+---                            Set to false to always use inline Neovim floating windows.
+---@field popup_width string Width of the tmux display-popup (default: "90%")
+---@field popup_height string Height of the tmux display-popup (default: "90%")
+
 ---@class OkubanAgentTeamsConfig
 ---@field enabled boolean EXPERIMENTAL: Enable agent teams (default: false)
 ---@field teammate_mode "tmux"|"auto" Teammate mode (default: "tmux")
@@ -61,6 +68,7 @@ local M = {}
 ---@field source_labels string|false
 ---@field source_project string|false
 ---@field migrate string|false
+---@field popup string|false Open board in a tmux display-popup (false = disabled, requires tmux)
 
 ---@class OkubanSortConfig
 ---@field field "updated"|"created"|"number" Sort field (default: "updated")
@@ -75,6 +83,7 @@ local M = {}
 ---@field source "labels"|"project" Data source: "labels" (default) or "project"
 ---@field columns OkubanColumn[]
 ---@field project OkubanProjectConfig
+---@field tmux OkubanTmuxConfig
 ---@field show_unsorted boolean
 ---@field skip_preflight boolean
 ---@field github_hostname string|nil
@@ -143,6 +152,19 @@ local defaults = {
     source_labels = "<leader>bl",
     source_project = "<leader>bp",
     migrate = "<leader>bm",
+    popup = false,
+  },
+  -- tmux integration settings
+  -- When prefer_popup = true (default), opening the board from inside a tmux session
+  -- launches a display-popup that floats over ALL panes — ideal for multi-pane layouts.
+  -- The popup closes cleanly when you press q or <Esc>.
+  --
+  -- To always use the inline Neovim floating-window board instead:
+  --   tmux = { prefer_popup = false }
+  tmux = {
+    prefer_popup = true, -- use display-popup when in tmux (spans all panes)
+    popup_width = "90%", -- width of the popup (percentage of terminal width)
+    popup_height = "90%", -- height of the popup (percentage of terminal height)
   },
   claude = {
     enabled = true,

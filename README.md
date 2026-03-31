@@ -124,7 +124,7 @@ okuban.nvim registers global keymaps on `setup()` using the `<leader>b` prefix (
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `<leader>bb` | `:Okuban` | Open kanban board |
+| `<leader>bb` | `:Okuban` | Open kanban board (popup in tmux, inline otherwise) |
 | `<leader>bq` | `:OkubanClose` | Close kanban board |
 | `<leader>br` | `:OkubanRefresh` | Refresh kanban board |
 | `<leader>bs` | `:OkubanSetup` | Create kanban labels |
@@ -156,6 +156,22 @@ require("okuban").setup({
 " 2. Open the kanban board
 :Okuban
 ```
+
+### tmux Setup (recommended)
+
+If you use tmux, add this line to your `~/.tmux.conf` to open the board as a full-terminal popup above all panes with `prefix + b`:
+
+```tmux
+# okuban.nvim — open kanban board as a floating popup above all panes
+# Requires tmux 3.2+ and okuban.nvim installed in Neovim
+bind-key b display-popup -xC -yC -w 90% -h 90% -e OKUBAN_POPUP=1 -E "nvim +Okuban"
+```
+
+Then reload your config (`prefix + r`, or `tmux source ~/.tmux.conf`).
+
+This is separate from — and complementary to — the `<leader>bb` Neovim keymap. Both open the same board; the tmux binding works from any pane, even when Neovim is not focused.
+
+> **Why `OKUBAN_POPUP=1`?** This env var tells okuban it's running inside a tmux popup so pressing `q` quits Neovim entirely (closing the popup) instead of just closing the board window.
 
 ## Configuration
 
@@ -260,6 +276,19 @@ require("okuban").setup({
       enabled = false,          -- EXPERIMENTAL: Claude agent teams
       teammate_mode = "tmux",   -- "tmux" or "auto"
     },
+  },
+
+  -- tmux integration
+  -- When prefer_popup = true (default), opening the board from inside a tmux
+  -- session launches a display-popup that floats over ALL panes — ideal for
+  -- multi-pane layouts. The popup closes cleanly when you press q or <Esc>.
+  --
+  -- To always use the inline Neovim floating-window board instead:
+  --   tmux = { prefer_popup = false }
+  tmux = {
+    prefer_popup = true,    -- use display-popup when in tmux (spans all panes)
+    popup_width = "90%",    -- width of the popup
+    popup_height = "90%",   -- height of the popup
   },
 })
 ```
