@@ -36,6 +36,23 @@ function Navigation:num_columns()
   return #self.board.columns
 end
 
+--- Clamp column and card indices to valid ranges after cards are removed.
+function Navigation:clamp_position()
+  local ncols = self:num_columns()
+  if ncols == 0 then
+    return
+  end
+  self.column_index = math.min(self.column_index, ncols)
+  local count = self:card_count(self.column_index)
+  if count == 0 then
+    self.card_index = 1
+  else
+    self.card_index = math.min(self.card_index, count)
+  end
+  -- Reset tree sub-index since the expanded card may have been removed
+  self._tree_sub_index = 0
+end
+
 --- Move to the next column (right).
 function Navigation:move_right()
   if self.column_index < self:num_columns() then

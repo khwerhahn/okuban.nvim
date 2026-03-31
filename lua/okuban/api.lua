@@ -217,13 +217,13 @@ function M.expand_column(col_index, callback)
   return require("okuban.api_labels").expand_column(col_index, callback)
 end
 
---- Fetch sub-issue counts for a list of issue numbers. Routes based on source.
+--- Fetch sub-issue counts and parent info for a list of issue numbers.
 --- In project mode, counts are embedded in issue objects (no extra call needed).
 ---@param issue_numbers integer[]
----@param callback fun(counts: table<integer, {total: integer, completed: integer}>)
+---@param callback fun(counts: table, parent_map: table)
 function M.fetch_sub_issue_counts(issue_numbers, callback)
   if config.get().source == "project" then
-    callback({})
+    callback({}, {})
     return
   end
   return require("okuban.api_labels").fetch_sub_issue_counts(issue_numbers, callback)

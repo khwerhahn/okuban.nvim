@@ -657,13 +657,64 @@ function Board:populate(data)
   end
   if #all_numbers > 0 then
     local api = require("okuban.api")
-    api.fetch_sub_issue_counts(all_numbers, function(counts)
+    api.fetch_sub_issue_counts(all_numbers, function(counts, parent_map)
       if not self:is_open() then
         return
       end
+
+      -- Filter sub-issues from the board (label mode only).
+      -- Issues that have a parent are sub-issues and should only appear
+      -- in the tree view, not as standalone cards on the board.
+      local filtered_any = false
+      if parent_map and not vim.tbl_isempty(parent_map) then
+        for i, col in ipairs(self.columns) do
+          local original_count = #col.issues
+          local filtered = {}
+          for _, issue in ipairs(col.issues) do
+            if not parent_map[issue.number] then
+              table.insert(filtered, issue)
+            end
+          end
+          if #filtered < original_count then
+            col.issues = filtered
+            filtered_any = true
+            -- Update column title with new count
+            local win = self.windows[i]
+            if win and vim.api.nvim_win_is_valid(win) then
+              local title = format_title(col.name, #col.issues, col.limit)
+              vim.api.nvim_win_set_config(win, { title = title, title_pos = "center" })
+            end
+          end
+        end
+      end
+
       if not counts or vim.tbl_isempty(counts) then
+        if filtered_any then
+          -- Still need to re-render even without counts, since we removed cards
+          local re_sessions = claude.get_all_sessions()
+          local tree = require("okuban.ui.tree")
+          for i, col in ipairs(self.columns) do
+            if not col._visible_items or not tree.has_any_expanded(i) then
+              local buf = self.buffers[i]
+              if buf and vim.api.nvim_buf_is_valid(buf) then
+                local iw = self:get_column_width(i) - 2
+                local lines, card_ranges =
+                  card.render_column(col.issues, iw, self.worktree_map, re_sessions, self.sub_issue_counts)
+                col.card_ranges = card_ranges
+                vim.bo[buf].modifiable = true
+                vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+                vim.bo[buf].modifiable = false
+              end
+            end
+          end
+          if self.navigation then
+            self.navigation:clamp_position()
+            self.navigation:highlight_current()
+          end
+        end
         return
       end
+
       self.sub_issue_counts = counts
       -- Re-render columns with sub-issue badges (skip tree-expanded columns)
       local re_sessions = claude.get_all_sessions()
@@ -683,6 +734,9 @@ function Board:populate(data)
         end
       end
       if self.navigation then
+        if filtered_any then
+          self.navigation:clamp_position()
+        end
         self.navigation:highlight_current()
       end
     end)

@@ -295,24 +295,26 @@ end
 -- Sub-issue counts
 -- ---------------------------------------------------------------------------
 
---- Batch-fetch sub-issue counts via GraphQL aliases.
+--- Batch-fetch sub-issue counts and parent info via GraphQL aliases.
+--- Returns counts (for badges) and parent_map (for filtering sub-issues from board).
 ---@param issue_numbers integer[]
----@param callback fun(counts: table<integer, {total: integer, completed: integer}>)
+---@param callback fun(counts: table, parent_map: table)
 function M.fetch_sub_issue_counts(issue_numbers, callback)
   if not issue_numbers or #issue_numbers == 0 then
-    callback({})
+    callback({}, {})
     return
   end
 
   local api = require("okuban.api")
   api.detect_repo_info(function(owner, name)
     if not owner or not name then
-      callback({})
+      callback({}, {})
       return
     end
 
     -- Build batched alias query (chunks of 25 to avoid oversized queries)
     local all_counts = {}
+    local all_parents = {} -- issue_number → parent_number (for sub-issue filtering)
     local chunks = {}
     for i = 1, #issue_numbers, 25 do
       local chunk = {}
@@ -324,7 +326,7 @@ function M.fetch_sub_issue_counts(issue_numbers, callback)
 
     local pending = #chunks
     if pending == 0 then
-      callback({})
+      callback({}, {})
       return
     end
 
@@ -333,7 +335,7 @@ function M.fetch_sub_issue_counts(issue_numbers, callback)
       for _, num in ipairs(chunk) do
         table.insert(
           aliases,
-          string.format("i%d: issue(number: %d) { subIssuesSummary { total completed } }", num, num)
+          string.format("i%d: issue(number: %d) { subIssuesSummary { total completed } parent { number } }", num, num)
         )
       end
 
@@ -357,10 +359,16 @@ function M.fetch_sub_issue_counts(issue_numbers, callback)
               local repo = data.data.repository
               for _, num in ipairs(chunk) do
                 local key = "i" .. num
-                if repo[key] and repo[key].subIssuesSummary then
-                  local s = repo[key].subIssuesSummary
-                  if s.total and s.total > 0 then
-                    all_counts[num] = { total = s.total, completed = s.completed or 0 }
+                if repo[key] then
+                  local entry = repo[key]
+                  if entry.subIssuesSummary then
+                    local s = entry.subIssuesSummary
+                    if s.total and s.total > 0 then
+                      all_counts[num] = { total = s.total, completed = s.completed or 0 }
+                    end
+                  end
+                  if entry.parent and entry.parent ~= vim.NIL and entry.parent.number then
+                    all_parents[num] = entry.parent.number
                   end
                 end
               end
@@ -369,7 +377,7 @@ function M.fetch_sub_issue_counts(issue_numbers, callback)
 
           pending = pending - 1
           if pending == 0 then
-            callback(all_counts)
+            callback(all_counts, all_parents)
           end
         end)
       end)
