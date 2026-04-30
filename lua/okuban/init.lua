@@ -134,7 +134,21 @@ local CACHE_MAX_AGE = 3600 -- 1 hour
 ---@param data table Board data from api.fetch_all_columns
 ---@param skip_focus boolean If true, skip auto-focus (used for cached data)
 function M._populate_board(board, data, skip_focus)
-  board:populate(data)
+  -- Auto-focus runs after the board has fully painted (navigation ready).
+  local on_painted = nil
+  if not skip_focus then
+    on_painted = function()
+      local detect = require("okuban.detect")
+      detect.detect_issue(function(issue_number)
+        if not issue_number or not board:is_open() or not board.navigation then
+          return
+        end
+        board.navigation:focus_issue(issue_number)
+      end)
+    end
+  end
+
+  board:populate(data, on_painted)
 
   -- First-open hint: if all kanban columns empty but unsorted has issues
   if not board._hint_shown then
@@ -149,17 +163,6 @@ function M._populate_board(board, data, skip_focus)
     if all_empty and data.unsorted and #data.unsorted > 0 then
       utils.notify("Tip: press Enter on a card to triage it into a column, or m to move it directly")
     end
-  end
-
-  -- Auto-focus: detect current issue and navigate to it
-  if not skip_focus then
-    local detect = require("okuban.detect")
-    detect.detect_issue(function(issue_number)
-      if not issue_number or not board:is_open() or not board.navigation then
-        return
-      end
-      board.navigation:focus_issue(issue_number)
-    end)
   end
 end
 
