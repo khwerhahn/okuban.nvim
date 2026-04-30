@@ -227,6 +227,31 @@ local function format_title(name, issue_count, limit)
   return string.format(" %s (%d) ", name, issue_count)
 end
 
+--- Drop sub-issues (issues whose number maps to a parent) from each column in place.
+---@param cols table[] Column list from build_column_list
+---@param parent_map table<integer, integer>|nil
+---@return boolean filtered_any True if at least one issue was removed
+local function filter_sub_issues_in_place(cols, parent_map)
+  if not parent_map or vim.tbl_isempty(parent_map) then
+    return false
+  end
+  local filtered_any = false
+  for _, col in ipairs(cols) do
+    local original_count = #col.issues
+    local filtered = {}
+    for _, issue in ipairs(col.issues) do
+      if not parent_map[issue.number] then
+        table.insert(filtered, issue)
+      end
+    end
+    if #filtered < original_count then
+      col.issues = filtered
+      filtered_any = true
+    end
+  end
+  return filtered_any
+end
+
 --- Create the preview window below the column windows.
 ---@param layout table Layout from calculate_layout
 function Board:_create_preview_window(layout)
@@ -551,6 +576,67 @@ function Board:open_loading()
   self:_setup_autocommands()
 end
 
+--- Render the given column list to existing buffers, update window titles,
+--- store columns on self, and apply active-worktree highlights.
+---@param cols table[]
+---@param layout table
+---@param wt_map table<integer, table>|nil
+---@param sessions table
+---@param counts table|nil sub-issue counts
+function Board:_paint_columns(cols, layout, wt_map, sessions, counts)
+  for i, col in ipairs(cols) do
+    local buf = self.buffers[i]
+    local win = self.windows[i]
+
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+      local inner_width = layout.col_width - 2
+      local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map, sessions, counts or {})
+      col.card_ranges = card_ranges
+
+      vim.bo[buf].modifiable = true
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      vim.bo[buf].modifiable = false
+    end
+
+    if win and vim.api.nvim_win_is_valid(win) then
+      local title = format_title(col.name, #col.issues, col.limit)
+      vim.api.nvim_win_set_config(win, {
+        relative = "editor",
+        row = layout.start_row,
+        col = layout.start_col + (i - 1) * (layout.col_width + layout.gap),
+        width = layout.col_width,
+        height = layout.board_height,
+        title = title,
+        title_pos = "center",
+      })
+    end
+  end
+
+  self.columns = cols
+  self:_apply_active_highlights(wt_map)
+end
+
+--- Set up navigation for the first time or refresh it while preserving position.
+function Board:_setup_or_update_navigation()
+  local Navigation = require("okuban.ui.navigation")
+  if self.navigation then
+    local old_col = self.navigation.column_index
+    local old_card = self.navigation.card_index
+    local old_issue_mode = self.navigation.issue_mode
+    self.navigation = Navigation.new(self)
+    self.navigation.column_index = math.min(old_col, self.navigation:num_columns())
+    local count = self.navigation:card_count(self.navigation.column_index)
+    self.navigation.card_index = math.min(old_card, math.max(1, count))
+    self.navigation.issue_mode = old_issue_mode or false
+  else
+    self.navigation = Navigation.new(self)
+  end
+  for _, buf in ipairs(self.buffers) do
+    self.navigation:setup_keymaps(buf)
+  end
+  self.navigation:highlight_current()
+end
+
 --- Populate existing loading windows with real data in-place.
 --- Sets up navigation and full keymaps.
 ---@param data table Board data from api.fetch_all_columns
@@ -587,181 +673,132 @@ function Board:populate(data)
   self.worktree_map = wt_map
   local sessions = claude.get_all_sessions()
 
-  for i, col in ipairs(cols) do
-    local buf = self.buffers[i]
-    local win = self.windows[i]
-
-    if buf and vim.api.nvim_buf_is_valid(buf) then
-      local inner_width = layout.col_width - 2
-      local lines, card_ranges = card.render_column(col.issues, inner_width, wt_map, sessions, self.sub_issue_counts)
-      col.card_ranges = card_ranges
-
-      vim.bo[buf].modifiable = true
-      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      vim.bo[buf].modifiable = false
-    end
-
-    -- Update window title with count
-    if win and vim.api.nvim_win_is_valid(win) then
-      local title = format_title(col.name, #col.issues, col.limit)
-      vim.api.nvim_win_set_config(win, {
-        relative = "editor",
-        row = layout.start_row,
-        col = layout.start_col + (i - 1) * (layout.col_width + layout.gap),
-        width = layout.col_width,
-        height = layout.board_height,
-        title = title,
-        title_pos = "center",
-      })
-    end
+  -- Apply cached parent_map filter pre-render so known sub-issues never flash.
+  local api = require("okuban.api")
+  local cached_parent_map = (api.get_cached_parent_map and api.get_cached_parent_map()) or nil
+  if cached_parent_map and not vim.tbl_isempty(cached_parent_map) then
+    filter_sub_issues_in_place(cols, cached_parent_map)
   end
 
-  self.columns = cols
+  -- Cold first paint: no cached parent_map AND no prior render means buffers
+  -- still hold the "Loading..." skeleton from open_loading(). Defer the first
+  -- paint until fresh parent_map arrives so sub-issues never appear at all.
+  local cold_first_paint = self.columns == nil and cached_parent_map == nil
 
-  -- Apply orange highlight to active worktree cards
-  self:_apply_active_highlights(wt_map)
+  if not cold_first_paint then
+    self:_paint_columns(cols, layout, wt_map, sessions, self.sub_issue_counts)
+    self:_setup_or_update_navigation()
+  end
 
-  -- Enrich worktree map with dirty/clean status asynchronously
+  -- Async: enrich worktree map with dirty/clean status. Skips if buffers
+  -- haven't been painted yet (cold path); the post-fetch_sub_issue_counts
+  -- paint will own the first render and worktree enrichment will overlay
+  -- once it completes (or already has, via self.worktree_map below).
   worktree.fetch_enriched(function(enriched_map)
     if not self:is_open() then
       return
     end
     self.worktree_map = enriched_map
-    -- Re-render columns with dirty/clean badges
+    if not self.columns then
+      return
+    end
+    local re_sessions = claude.get_all_sessions()
     for i, col in ipairs(self.columns) do
       local buf = self.buffers[i]
       if buf and vim.api.nvim_buf_is_valid(buf) then
         local inner_width = layout.col_width - 2
         local lines, card_ranges =
-          card.render_column(col.issues, inner_width, enriched_map, sessions, self.sub_issue_counts)
+          card.render_column(col.issues, inner_width, enriched_map, re_sessions, self.sub_issue_counts)
         col.card_ranges = card_ranges
         vim.bo[buf].modifiable = true
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
         vim.bo[buf].modifiable = false
       end
     end
-    -- Re-apply active highlights after re-rendering
     self:_apply_active_highlights(enriched_map)
-    -- Re-highlight current card and update preview
     if self.navigation then
       self.navigation:highlight_current()
     end
   end)
 
-  -- Fetch sub-issue counts asynchronously
+  -- Async: fresh sub-issue counts + parent_map.
+  --   Cold path: this triggers the first paint with the filter applied.
+  --   Warm path: re-renders if parent_map changed and updates badges with counts.
   local all_numbers = {}
-  for _, col in ipairs(cols) do
-    for _, issue in ipairs(col.issues) do
+  for _, raw_col in ipairs(build_column_list(data)) do
+    for _, issue in ipairs(raw_col.issues) do
       table.insert(all_numbers, issue.number)
     end
   end
-  if #all_numbers > 0 then
-    local api = require("okuban.api")
-    api.fetch_sub_issue_counts(all_numbers, function(counts, parent_map)
-      if not self:is_open() then
-        return
-      end
 
-      -- Filter sub-issues from the board (label mode only).
-      -- Issues that have a parent are sub-issues and should only appear
-      -- in the tree view, not as standalone cards on the board.
-      local filtered_any = false
-      if parent_map and not vim.tbl_isempty(parent_map) then
-        for i, col in ipairs(self.columns) do
-          local original_count = #col.issues
-          local filtered = {}
-          for _, issue in ipairs(col.issues) do
-            if not parent_map[issue.number] then
-              table.insert(filtered, issue)
-            end
-          end
-          if #filtered < original_count then
-            col.issues = filtered
-            filtered_any = true
-            -- Update column title with new count
-            local win = self.windows[i]
-            if win and vim.api.nvim_win_is_valid(win) then
-              local title = format_title(col.name, #col.issues, col.limit)
-              vim.api.nvim_win_set_config(win, { title = title, title_pos = "center" })
-            end
-          end
-        end
-      end
-
-      if not counts or vim.tbl_isempty(counts) then
-        if filtered_any then
-          -- Still need to re-render even without counts, since we removed cards
-          local re_sessions = claude.get_all_sessions()
-          local tree = require("okuban.ui.tree")
-          for i, col in ipairs(self.columns) do
-            if not col._visible_items or not tree.has_any_expanded(i) then
-              local buf = self.buffers[i]
-              if buf and vim.api.nvim_buf_is_valid(buf) then
-                local iw = self:get_column_width(i) - 2
-                local lines, card_ranges =
-                  card.render_column(col.issues, iw, self.worktree_map, re_sessions, self.sub_issue_counts)
-                col.card_ranges = card_ranges
-                vim.bo[buf].modifiable = true
-                vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-                vim.bo[buf].modifiable = false
-              end
-            end
-          end
-          if self.navigation then
-            self.navigation:clamp_position()
-            self.navigation:highlight_current()
-          end
-        end
-        return
-      end
-
-      self.sub_issue_counts = counts
-      -- Re-render columns with sub-issue badges (skip tree-expanded columns)
-      local re_sessions = claude.get_all_sessions()
-      local tree = require("okuban.ui.tree")
-      for i, col in ipairs(self.columns) do
-        -- Skip columns that have an active tree expansion (tree owns their buffer content)
-        if not col._visible_items or not tree.has_any_expanded(i) then
-          local buf = self.buffers[i]
-          if buf and vim.api.nvim_buf_is_valid(buf) then
-            local iw = self:get_column_width(i) - 2
-            local lines, card_ranges = card.render_column(col.issues, iw, self.worktree_map, re_sessions, counts)
-            col.card_ranges = card_ranges
-            vim.bo[buf].modifiable = true
-            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-            vim.bo[buf].modifiable = false
-          end
-        end
-      end
-      if self.navigation then
-        if filtered_any then
-          self.navigation:clamp_position()
-        end
-        self.navigation:highlight_current()
-      end
-    end)
+  if #all_numbers == 0 then
+    if cold_first_paint and self.columns == nil then
+      self:_paint_columns(cols, layout, wt_map, sessions, self.sub_issue_counts)
+      self:_setup_or_update_navigation()
+    end
+    header.set_last_updated(os.time())
+    return
   end
 
-  -- Set up or update navigation, preserving position during refresh
-  local Navigation = require("okuban.ui.navigation")
-  if self.navigation then
-    local old_col = self.navigation.column_index
-    local old_card = self.navigation.card_index
-    local old_issue_mode = self.navigation.issue_mode
-    self.navigation = Navigation.new(self)
-    self.navigation.column_index = math.min(old_col, self.navigation:num_columns())
-    local count = self.navigation:card_count(self.navigation.column_index)
-    self.navigation.card_index = math.min(old_card, math.max(1, count))
-    self.navigation.issue_mode = old_issue_mode or false
-  else
-    self.navigation = Navigation.new(self)
-  end
-  for _, buf in ipairs(self.buffers) do
-    self.navigation:setup_keymaps(buf)
-  end
-  self.navigation:highlight_current()
+  api.fetch_sub_issue_counts(all_numbers, function(counts, fresh_parent_map)
+    if not self:is_open() then
+      return
+    end
 
-  -- Record update timestamp for staleness indicator
+    local fresh_cols = build_column_list(data)
+    filter_sub_issues_in_place(fresh_cols, fresh_parent_map or {})
+    self.sub_issue_counts = counts or {}
+
+    if self.columns == nil then
+      -- Cold path: first paint.
+      self:_paint_columns(fresh_cols, layout, self.worktree_map, claude.get_all_sessions(), counts)
+      self:_setup_or_update_navigation()
+      return
+    end
+
+    -- Warm path or already-painted cold path: re-render columns with fresh
+    -- data, skipping any column that owns its buffer via tree expansion.
+    local re_sessions = claude.get_all_sessions()
+    local tree = require("okuban.ui.tree")
+    for i, col in ipairs(fresh_cols) do
+      if not col._visible_items or not tree.has_any_expanded(i) then
+        local buf = self.buffers[i]
+        if buf and vim.api.nvim_buf_is_valid(buf) then
+          local iw = self:get_column_width(i) - 2
+          local lines, card_ranges = card.render_column(col.issues, iw, self.worktree_map, re_sessions, counts)
+          col.card_ranges = card_ranges
+          vim.bo[buf].modifiable = true
+          vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+          vim.bo[buf].modifiable = false
+
+          local win = self.windows[i]
+          if win and vim.api.nvim_win_is_valid(win) then
+            local title = format_title(col.name, #col.issues, col.limit)
+            vim.api.nvim_win_set_config(win, { title = title, title_pos = "center" })
+          end
+        end
+      end
+    end
+    self.columns = fresh_cols
+
+    if self.navigation then
+      self.navigation:clamp_position()
+      self.navigation:highlight_current()
+    end
+  end)
+
+  -- Cold-path safety net: if the GraphQL fetch hangs (network failure, gh
+  -- crash), fall back to an unfiltered first paint after 2s rather than
+  -- leaving the user stuck on the loading skeleton.
+  if cold_first_paint then
+    vim.defer_fn(function()
+      if self:is_open() and self.columns == nil then
+        self:_paint_columns(cols, layout, wt_map, sessions, self.sub_issue_counts)
+        self:_setup_or_update_navigation()
+      end
+    end, 2000)
+  end
+
   header.set_last_updated(os.time())
 end
 
@@ -794,6 +831,13 @@ function Board:open(data)
   local wt_map = worktree.fetch_worktree_map()
   self.worktree_map = wt_map
   local sessions = claude.get_all_sessions()
+
+  -- Apply cached parent_map filter pre-render (warm path; matches populate).
+  local api_module = require("okuban.api")
+  local cached_parent_map = (api_module.get_cached_parent_map and api_module.get_cached_parent_map()) or nil
+  if cached_parent_map and not vim.tbl_isempty(cached_parent_map) then
+    filter_sub_issues_in_place(cols, cached_parent_map)
+  end
 
   for i, col in ipairs(cols) do
     local buf = vim.api.nvim_create_buf(false, true)
