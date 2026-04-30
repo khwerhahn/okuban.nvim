@@ -127,13 +127,17 @@ function M.open()
   end)
 end
 
-local CACHE_MAX_AGE = 3600 -- 1 hour
-
 --- Populate board with data and run first-open checks.
 ---@param board table Board instance
 ---@param data table Board data from api.fetch_all_columns
 ---@param skip_focus boolean If true, skip auto-focus (used for cached data)
 function M._populate_board(board, data, skip_focus)
+  -- Bail if the user closed the board during the fetch — we don't want
+  -- populate's column-mismatch fallback to re-open it against their wishes.
+  if not board:is_open() then
+    return
+  end
+
   -- Auto-focus runs after the board has fully painted (navigation ready).
   local on_painted = nil
   if not skip_focus then
@@ -167,24 +171,13 @@ function M._populate_board(board, data, skip_focus)
 end
 
 --- Fetch data and populate an already-opened loading board.
---- If cached data is available (< 1h old), shows it instantly and refreshes in background.
+--- Always waits for the fresh fetch before painting so the user sees a
+--- single transition from the loading skeleton to the final cards. The
+--- previous "show stale cache instantly, refresh in background" path was
+--- removed because it caused two visible paints (cached then fresh) which
+--- the user perceived as a flicker.
 ---@param board table Board instance (already showing loading skeleton)
 function M._open_board(board)
-  -- Try cached data first for instant display
-  local cached = api.get_cached_board_data(CACHE_MAX_AGE)
-  if cached then
-    M._populate_board(board, cached, false)
-    -- Refresh immediately in background, then start limited auto-refresh cycle
-    api.fetch_all_columns(function(data)
-      if data and board:is_open() then
-        board:refresh(data)
-        board:_start_auto_refresh()
-      end
-    end)
-    return
-  end
-
-  -- No cache — fetch fresh (loading skeleton already visible)
   api.fetch_all_columns(function(data)
     if not data then
       utils.notify("Failed to fetch issues", vim.log.levels.ERROR)

@@ -574,6 +574,47 @@ function Board:open_loading()
   end
 
   self:_setup_autocommands()
+  self:_start_loading_animation()
+end
+
+--- Animated loading text frames (ASCII-only).
+local LOADING_FRAMES = { "Loading.  ", "Loading.. ", "Loading...", "Loading.. " }
+
+--- Start a buffer-text animation that cycles "Loading..." across all column
+--- buffers until the first paint replaces them. No-op if already running.
+function Board:_start_loading_animation()
+  if self._loading_timer then
+    return
+  end
+  local frame_idx = 1
+
+  local function render_frame()
+    if not self:is_open() or self.columns then
+      self:_stop_loading_animation()
+      return
+    end
+    local text = "  " .. LOADING_FRAMES[frame_idx]
+    for _, buf in ipairs(self.buffers) do
+      if vim.api.nvim_buf_is_valid(buf) then
+        vim.bo[buf].modifiable = true
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, { text })
+        vim.bo[buf].modifiable = false
+      end
+    end
+    frame_idx = (frame_idx % #LOADING_FRAMES) + 1
+  end
+
+  self._loading_timer = vim.uv.new_timer()
+  self._loading_timer:start(0, 250, vim.schedule_wrap(render_frame))
+end
+
+--- Stop the loading animation and free the timer. Idempotent.
+function Board:_stop_loading_animation()
+  if self._loading_timer then
+    self._loading_timer:stop()
+    self._loading_timer:close()
+    self._loading_timer = nil
+  end
 end
 
 --- Render the given column list to existing buffers, update window titles,
@@ -710,6 +751,7 @@ function Board:populate(data, on_painted)
       return
     end
     painted = true
+    self:_stop_loading_animation()
 
     local pm = fresh_parent_map or cached_parent_map or {}
     local final_cols = build_column_list(data)
@@ -1021,6 +1063,7 @@ end
 --- Close the board and clean up all windows and buffers.
 function Board:close()
   self:_stop_auto_refresh()
+  self:_stop_loading_animation()
   require("okuban.ui.tree").reset()
 
   if self.augroup then
