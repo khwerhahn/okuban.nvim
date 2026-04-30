@@ -478,6 +478,12 @@ end
 --- Open the board with loading placeholders (instant skeleton).
 --- No navigation is set up — call populate(data) when data arrives.
 function Board:open_loading()
+  -- Idempotent: if windows already exist (e.g., a concurrent open() raced
+  -- ahead), bail rather than appending another set.
+  if self:is_open() then
+    return
+  end
+
   define_highlights()
 
   local cfg = config.get()

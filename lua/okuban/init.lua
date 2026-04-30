@@ -94,6 +94,14 @@ function M.open()
       return
     end
 
+    -- Re-check after async preflight: another open() may have raced ahead
+    -- (notably in tmux popup mode where -c Okuban and the VimEnter autocmd
+    -- both call open(), and both can pass the outer is_open() check before
+    -- either one's preflight completes).
+    if board:is_open() then
+      return
+    end
+
     -- For project mode: ensure scope + project selection before opening
     local current_cfg = config.get()
     if current_cfg.source == "project" and not current_cfg.project.number then
@@ -102,8 +110,11 @@ function M.open()
           utils.notify(scope_err, vim.log.levels.ERROR)
           return
         end
+        if board:is_open() then
+          return
+        end
         M._pick_project(function(number)
-          if not number then
+          if not number or board:is_open() then
             return
           end
           current_cfg.project.number = number
