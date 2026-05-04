@@ -471,6 +471,103 @@ describe("okuban.api fetch", function()
     end)
   end)
 
+  describe("get_cached_parent_map", function()
+    before_each(function()
+      local api_labels = require("okuban.api_labels")
+      api_labels._reset_parent_map_cache()
+      api._reset_repo_info()
+    end)
+
+    it("returns nil before any fetch_sub_issue_counts call", function()
+      local api_labels = require("okuban.api_labels")
+      assert.is_nil(api_labels.get_cached_parent_map())
+      assert.is_nil(api.get_cached_parent_map())
+    end)
+
+    it("populates after fetch_sub_issue_counts resolves", function()
+      local graphql_response = vim.json.encode({
+        data = {
+          repository = {
+            i10 = { subIssuesSummary = { total = 2, completed = 0 }, parent = vim.NIL },
+            i11 = { subIssuesSummary = { total = 0, completed = 0 }, parent = { number = 10 } },
+          },
+        },
+      })
+      helpers.mock_vim_system({
+        { code = 0, stdout = "alice|myrepo" },
+        { code = 0, stdout = graphql_response },
+      })
+
+      local api_labels = require("okuban.api_labels")
+
+      local done = false
+      api_labels.fetch_sub_issue_counts({ 10, 11 }, function()
+        done = true
+      end)
+      vim.wait(2000, function()
+        return done
+      end)
+
+      local cached = api_labels.get_cached_parent_map()
+      assert.is_not_nil(cached)
+      assert.equals(10, cached[11])
+      assert.is_nil(cached[10])
+      -- The api.lua proxy returns the same cache in label mode
+      assert.equals(cached, api.get_cached_parent_map())
+    end)
+
+    it("overwrites cache on subsequent fetches", function()
+      local first_response = vim.json.encode({
+        data = {
+          repository = {
+            i10 = { subIssuesSummary = { total = 1, completed = 0 }, parent = vim.NIL },
+            i11 = { subIssuesSummary = { total = 0, completed = 0 }, parent = { number = 10 } },
+          },
+        },
+      })
+      -- Second response: issue 11 is no longer a sub-issue (parent removed)
+      local second_response = vim.json.encode({
+        data = {
+          repository = {
+            i10 = { subIssuesSummary = { total = 0, completed = 0 }, parent = vim.NIL },
+            i11 = { subIssuesSummary = { total = 0, completed = 0 }, parent = vim.NIL },
+          },
+        },
+      })
+      helpers.mock_vim_system({
+        { code = 0, stdout = "alice|myrepo" },
+        { code = 0, stdout = first_response },
+        { code = 0, stdout = second_response },
+      })
+
+      local api_labels = require("okuban.api_labels")
+
+      local done1 = false
+      api_labels.fetch_sub_issue_counts({ 10, 11 }, function()
+        done1 = true
+      end)
+      vim.wait(2000, function()
+        return done1
+      end)
+      assert.equals(10, api_labels.get_cached_parent_map()[11])
+
+      local done2 = false
+      api_labels.fetch_sub_issue_counts({ 10, 11 }, function()
+        done2 = true
+      end)
+      vim.wait(2000, function()
+        return done2
+      end)
+      -- Cache reflects the new state: no parents
+      assert.is_nil(api_labels.get_cached_parent_map()[11])
+    end)
+
+    it("api.get_cached_parent_map returns nil in project mode", function()
+      config.setup({ source = "project" })
+      assert.is_nil(api.get_cached_parent_map())
+    end)
+  end)
+
   describe("fetch_sub_issues", function()
     it("parses GraphQL response into sub-issue array", function()
       local graphql_response = vim.json.encode({

@@ -237,6 +237,16 @@ function M.fetch_sub_issues(parent_number, callback)
   return require("okuban.api_labels").fetch_sub_issues(parent_number, callback)
 end
 
+--- Return the cached parent_map (label-mode only).
+--- Returns nil if never fetched or in project mode.
+---@return table<integer, integer>|nil
+function M.get_cached_parent_map()
+  if config.get().source == "project" then
+    return nil
+  end
+  return require("okuban.api_labels").get_cached_parent_map()
+end
+
 --- Fetch issues for a single label (label-mode only).
 ---@param label string The label to filter by
 ---@param state string|nil Issue state filter

@@ -94,6 +94,14 @@ function M.open()
       return
     end
 
+    -- Re-check after async preflight: another open() may have raced ahead
+    -- (notably in tmux popup mode where -c Okuban and the VimEnter autocmd
+    -- both call open(), and both can pass the outer is_open() check before
+    -- either one's preflight completes).
+    if board:is_open() then
+      return
+    end
+
     -- For project mode: ensure scope + project selection before opening
     local current_cfg = config.get()
     if current_cfg.source == "project" and not current_cfg.project.number then
@@ -102,8 +110,11 @@ function M.open()
           utils.notify(scope_err, vim.log.levels.ERROR)
           return
         end
+        if board:is_open() then
+          return
+        end
         M._pick_project(function(number)
-          if not number then
+          if not number or board:is_open() then
             return
           end
           current_cfg.project.number = number
@@ -127,14 +138,32 @@ function M.open()
   end)
 end
 
-local CACHE_MAX_AGE = 3600 -- 1 hour
-
 --- Populate board with data and run first-open checks.
 ---@param board table Board instance
 ---@param data table Board data from api.fetch_all_columns
 ---@param skip_focus boolean If true, skip auto-focus (used for cached data)
 function M._populate_board(board, data, skip_focus)
-  board:populate(data)
+  -- Bail if the user closed the board during the fetch — we don't want
+  -- populate's column-mismatch fallback to re-open it against their wishes.
+  if not board:is_open() then
+    return
+  end
+
+  -- Auto-focus runs after the board has fully painted (navigation ready).
+  local on_painted = nil
+  if not skip_focus then
+    on_painted = function()
+      local detect = require("okuban.detect")
+      detect.detect_issue(function(issue_number)
+        if not issue_number or not board:is_open() or not board.navigation then
+          return
+        end
+        board.navigation:focus_issue(issue_number)
+      end)
+    end
+  end
+
+  board:populate(data, on_painted)
 
   -- First-open hint: if all kanban columns empty but unsorted has issues
   if not board._hint_shown then
@@ -150,38 +179,16 @@ function M._populate_board(board, data, skip_focus)
       utils.notify("Tip: press Enter on a card to triage it into a column, or m to move it directly")
     end
   end
-
-  -- Auto-focus: detect current issue and navigate to it
-  if not skip_focus then
-    local detect = require("okuban.detect")
-    detect.detect_issue(function(issue_number)
-      if not issue_number or not board:is_open() or not board.navigation then
-        return
-      end
-      board.navigation:focus_issue(issue_number)
-    end)
-  end
 end
 
 --- Fetch data and populate an already-opened loading board.
---- If cached data is available (< 1h old), shows it instantly and refreshes in background.
+--- Always waits for the fresh fetch before painting so the user sees a
+--- single transition from the loading skeleton to the final cards. The
+--- previous "show stale cache instantly, refresh in background" path was
+--- removed because it caused two visible paints (cached then fresh) which
+--- the user perceived as a flicker.
 ---@param board table Board instance (already showing loading skeleton)
 function M._open_board(board)
-  -- Try cached data first for instant display
-  local cached = api.get_cached_board_data(CACHE_MAX_AGE)
-  if cached then
-    M._populate_board(board, cached, false)
-    -- Refresh immediately in background, then start limited auto-refresh cycle
-    api.fetch_all_columns(function(data)
-      if data and board:is_open() then
-        board:refresh(data)
-        board:_start_auto_refresh()
-      end
-    end)
-    return
-  end
-
-  -- No cache — fetch fresh (loading skeleton already visible)
   api.fetch_all_columns(function(data)
     if not data then
       utils.notify("Failed to fetch issues", vim.log.levels.ERROR)

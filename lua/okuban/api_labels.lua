@@ -6,6 +6,10 @@ local M = {}
 local board_cache = nil ---@type table|nil
 local board_cache_ts = 0 ---@type integer
 
+--- Session-level parent_map cache (issue_number → parent_number).
+--- nil = never fetched. {} = fetched, no parents found.
+local parent_map_cache = nil ---@type table<integer, integer>|nil
+
 --- Get the gh base command from the shared api module.
 ---@return string[]
 local function gh_base_cmd()
@@ -377,12 +381,25 @@ function M.fetch_sub_issue_counts(issue_numbers, callback)
 
           pending = pending - 1
           if pending == 0 then
+            parent_map_cache = all_parents
             callback(all_counts, all_parents)
           end
         end)
       end)
     end
   end)
+end
+
+--- Return the cached parent_map from the most recent fetch_sub_issue_counts call.
+--- Returns nil if never fetched, otherwise a table (possibly empty).
+---@return table<integer, integer>|nil
+function M.get_cached_parent_map()
+  return parent_map_cache
+end
+
+--- Reset the parent_map cache (for testing).
+function M._reset_parent_map_cache()
+  parent_map_cache = nil
 end
 
 -- ---------------------------------------------------------------------------
