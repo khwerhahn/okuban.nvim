@@ -184,6 +184,9 @@ end
 
 --- Build the tmux display-popup command to open okuban in a floating overlay.
 --- Sets OKUBAN_POPUP=1 so the board knows to quit Neovim on close.
+--- Passes -d with Neovim's cwd so the popup nvim starts in the same directory
+--- as the parent — tmux's pane_current_path can resolve to $HOME on macOS,
+--- which would make the popup's preflight fail outside a git repo.
 ---@param opts { width?: string, height?: string }|nil
 ---@return string[] cmd
 function M.build_popup_command(opts)
@@ -193,6 +196,8 @@ function M.build_popup_command(opts)
   return {
     "tmux",
     "display-popup",
+    "-d",
+    vim.fn.getcwd(),
     "-xC",
     "-yC",
     "-w",
