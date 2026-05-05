@@ -35,37 +35,57 @@ describe("okuban.tmux", function()
   end)
 
   describe("build_popup_command", function()
+    --- Find the value following the first occurrence of `flag` in cmd.
+    local function arg_after(cmd, flag)
+      for i, v in ipairs(cmd) do
+        if v == flag then
+          return cmd[i + 1]
+        end
+      end
+      return nil
+    end
+
     it("builds display-popup command with defaults", function()
       local cmd = tmux.build_popup_command()
       assert.are.equal("tmux", cmd[1])
       assert.are.equal("display-popup", cmd[2])
-      assert.are.equal("-xC", cmd[3])
-      assert.are.equal("-yC", cmd[4])
-      assert.are.equal("-w", cmd[5])
-      assert.are.equal("90%", cmd[6])
-      assert.are.equal("-h", cmd[7])
-      assert.are.equal("90%", cmd[8])
-      assert.are.equal("-e", cmd[9])
-      assert.are.equal("OKUBAN_POPUP=1", cmd[10])
-      assert.are.equal("-E", cmd[11])
-      assert.are.equal("nvim +Okuban", cmd[12])
+      assert.are.equal("90%", arg_after(cmd, "-w"))
+      assert.are.equal("90%", arg_after(cmd, "-h"))
+      assert.are.equal("OKUBAN_POPUP=1", arg_after(cmd, "-e"))
+      assert.are.equal("nvim +Okuban", arg_after(cmd, "-E"))
+      -- Position flags (no arg)
+      local has_xC, has_yC = false, false
+      for _, v in ipairs(cmd) do
+        if v == "-xC" then
+          has_xC = true
+        end
+        if v == "-yC" then
+          has_yC = true
+        end
+      end
+      assert.is_true(has_xC, "expected -xC in command")
+      assert.is_true(has_yC, "expected -yC in command")
     end)
 
     it("respects custom width and height", function()
       local cmd = tmux.build_popup_command({ width = "80%", height = "70%" })
-      assert.are.equal("80%", cmd[6])
-      assert.are.equal("70%", cmd[8])
+      assert.are.equal("80%", arg_after(cmd, "-w"))
+      assert.are.equal("70%", arg_after(cmd, "-h"))
     end)
 
     it("sets OKUBAN_POPUP=1 env var", function()
       local cmd = tmux.build_popup_command()
-      local found = false
-      for i, v in ipairs(cmd) do
-        if v == "-e" and cmd[i + 1] == "OKUBAN_POPUP=1" then
-          found = true
-        end
+      assert.are.equal("OKUBAN_POPUP=1", arg_after(cmd, "-e"))
+    end)
+
+    it("passes -d with Neovim's cwd so popup inherits it (regression: #156)", function()
+      local orig_getcwd = vim.fn.getcwd
+      vim.fn.getcwd = function()
+        return "/tmp/okuban-fixture-repo"
       end
-      assert.is_true(found, "expected -e OKUBAN_POPUP=1 in command")
+      local cmd = tmux.build_popup_command()
+      vim.fn.getcwd = orig_getcwd
+      assert.are.equal("/tmp/okuban-fixture-repo", arg_after(cmd, "-d"))
     end)
   end)
 
