@@ -717,17 +717,48 @@ end
 ---@param parent_map table<integer, integer> Mutated; new entries added
 ---@param counts table<integer, {total: integer, completed: integer}> Mutated
 ---@param callback fun()
-local function inject_missing_parents(data, parent_map, counts, callback)
+---@param should_cancel fun(): boolean|nil Optional. Return true to abort the
+---  iterative fetch chain (e.g. a fresher populate has invalidated this run).
+---  When triggered, the callback still fires so the outer barrier resolves.
+local function inject_missing_parents(data, parent_map, counts, callback, should_cancel)
   local MAX_DEPTH = 5
   local depth = 0
-  local label_to_col = {}
-  for col_idx, col in ipairs(data.columns) do
-    if col.label then
-      label_to_col[col.label] = col_idx
+
+  -- Use the column ORDER from data, not a label→idx map, so a parent that
+  -- carries multiple okuban: labels is placed deterministically into the
+  -- first matching column (typically Backlog → Todo → In Progress → Review
+  -- → Done by default config). Avoids relying on label iteration order.
+  local function find_target_col(parent)
+    local parent_labels = {}
+    for _, label in ipairs(parent.labels or {}) do
+      parent_labels[label.name] = true
     end
+    for col_idx, col in ipairs(data.columns) do
+      if col.label and parent_labels[col.label] then
+        return col_idx
+      end
+    end
+    return nil
+  end
+
+  local function finalize()
+    -- Re-sort each column so injected parents land in the right position
+    -- per the configured sort (default: updatedAt desc).
+    local api_labels = require("okuban.api_labels")
+    if api_labels.sort_issues then
+      for _, col in ipairs(data.columns) do
+        api_labels.sort_issues(col.issues)
+      end
+    end
+    callback()
   end
 
   local function step()
+    if should_cancel and should_cancel() then
+      callback()
+      return
+    end
+
     local visible = {}
     for _, col in ipairs(data.columns) do
       for _, issue in ipairs(col.issues) do
@@ -751,36 +782,26 @@ local function inject_missing_parents(data, parent_map, counts, callback)
       table.insert(missing_list, num)
     end
     if #missing_list == 0 or depth >= MAX_DEPTH then
-      -- Re-sort each column so injected parents land in the right position
-      -- per the configured sort (default: updatedAt desc).
-      local api_labels = require("okuban.api_labels")
-      if api_labels.sort_issues then
-        for _, col in ipairs(data.columns) do
-          api_labels.sort_issues(col.issues)
-        end
-      end
-      callback()
+      finalize()
       return
     end
     depth = depth + 1
 
     local api = require("okuban.api")
     api.fetch_issue_details(missing_list, function(parents, new_parents, new_counts)
+      if should_cancel and should_cancel() then
+        callback()
+        return
+      end
       for _, parent in ipairs(parents) do
-        local placed = false
-        for _, label in ipairs(parent.labels or {}) do
-          local target = label_to_col[label.name]
-          if target and data.columns[target] then
-            table.insert(data.columns[target].issues, parent)
-            placed = true
-            break
-          end
+        local target = find_target_col(parent)
+        if target then
+          table.insert(data.columns[target].issues, parent)
         end
         -- Parent with no matching okuban: label is intentionally not
         -- injected: it would have no home column. Its children remain
         -- hidden by the leaf filter and unreachable from the board,
         -- which is the user's responsibility to fix (label the parent).
-        local _ = placed
       end
       for k, v in pairs(new_parents) do
         parent_map[k] = v
@@ -913,11 +934,16 @@ function Board:populate(data, on_painted)
       -- `initial_fetch_limit`. Each newly-injected parent is appended to
       -- `data.columns[i].issues` based on its okuban: label, so the leaf
       -- filter has a complete picture of which parents are on the board.
+      -- The should_cancel predicate short-circuits the iterative fetch
+      -- chain when a fresher populate run has invalidated this one,
+      -- preventing stale mutations to `data.columns`.
       inject_missing_parents(data, fresh_parent_map, fresh_counts, function()
         if self._populate_gen ~= gen then
           return
         end
         on_async_done()
+      end, function()
+        return self._populate_gen ~= gen
       end)
     end)
   end
