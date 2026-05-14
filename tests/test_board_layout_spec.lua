@@ -277,4 +277,64 @@ describe("okuban.ui.board layout", function()
       assert.is_true(total <= board_width)
     end)
   end)
+
+  describe("_build_column_list", function()
+    -- Regression: when show_unsorted=true the board reserves an Unsorted window
+    -- in open_loading regardless of issue count. build_column_list must agree so
+    -- populate's column-count check (#cols == #self.windows) does not fall back
+    -- to the synchronous Board:open path, which skips the async parent_map
+    -- fetch and leaves sub-issues unfiltered. (Fixes #158)
+    it("includes Unsorted column when data.unsorted is an empty table", function()
+      local data = {
+        columns = {
+          { name = "Backlog", issues = {}, limit = 100 },
+          { name = "Todo", issues = {}, limit = 100 },
+        },
+        unsorted = {},
+      }
+      local cols = Board._build_column_list(data)
+      assert.equals(3, #cols)
+      assert.equals("Unsorted", cols[3].name)
+      assert.same({}, cols[3].issues)
+    end)
+
+    it("includes Unsorted column when data.unsorted has issues", function()
+      local data = {
+        columns = {
+          { name = "Backlog", issues = {}, limit = 100 },
+        },
+        unsorted = { { number = 99, title = "Stray" } },
+      }
+      local cols = Board._build_column_list(data)
+      assert.equals(2, #cols)
+      assert.equals("Unsorted", cols[2].name)
+      assert.equals(1, #cols[2].issues)
+    end)
+
+    it("omits Unsorted column when data.unsorted is nil (show_unsorted=false)", function()
+      local data = {
+        columns = {
+          { name = "Backlog", issues = {}, limit = 100 },
+          { name = "Todo", issues = {}, limit = 100 },
+        },
+        -- data.unsorted is nil — fetch_all_columns omits the field entirely
+        -- when config.show_unsorted is false.
+      }
+      local cols = Board._build_column_list(data)
+      assert.equals(2, #cols)
+      assert.equals("Backlog", cols[1].name)
+      assert.equals("Todo", cols[2].name)
+    end)
+
+    it("preserves limit and has_more flags from configured columns", function()
+      local data = {
+        columns = {
+          { name = "Backlog", issues = {}, limit = 50, has_more = true },
+        },
+      }
+      local cols = Board._build_column_list(data)
+      assert.equals(50, cols[1].limit)
+      assert.is_true(cols[1].has_more)
+    end)
+  end)
 end)
