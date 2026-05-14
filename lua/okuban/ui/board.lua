@@ -202,6 +202,11 @@ function Board.new()
 end
 
 --- Build the column list for display from board data.
+--- Always emits the Unsorted column when `data.unsorted` is set (i.e.
+--- `show_unsorted = true`), even if empty. Matches `open_loading`'s window
+--- count so `populate` does not fall back to the synchronous `Board:open`
+--- path, which would skip the async parent_map fetch and leave sub-issues
+--- unfiltered.
 ---@param data table Board data from api.fetch_all_columns
 ---@return table[] cols
 local function build_column_list(data)
@@ -209,7 +214,7 @@ local function build_column_list(data)
   for _, col in ipairs(data.columns) do
     table.insert(cols, { name = col.name, issues = col.issues, limit = col.limit, has_more = col.has_more })
   end
-  if data.unsorted and #data.unsorted > 0 then
+  if data.unsorted then
     table.insert(cols, { name = "Unsorted", issues = data.unsorted })
   end
   return cols
@@ -1144,5 +1149,7 @@ function Board.close_instance()
     instance:close()
   end
 end
+
+Board._build_column_list = build_column_list
 
 return Board
