@@ -337,4 +337,385 @@ describe("okuban.ui.board layout", function()
       assert.is_true(cols[1].has_more)
     end)
   end)
+
+  describe("_filter_sub_issues_in_place", function()
+    -- Rule: drop iff `parent_map[n]` is set AND `sub_issue_counts[n]` is not
+    -- set. Keep roots and mid-level parents; drop only leaves. (Fixes #160)
+    it("drops a leaf sub-issue (has parent, no children)", function()
+      local cols = {
+        { name = "Backlog", issues = { { number = 7 }, { number = 28 } } },
+      }
+      local parent_map = { [7] = 4, [28] = 7 }
+      local counts = { [7] = { total = 8, completed = 0 } } -- #28 is a leaf
+      local changed = Board._filter_sub_issues_in_place(cols, parent_map, counts)
+      assert.is_true(changed)
+      assert.equals(1, #cols[1].issues)
+      assert.equals(7, cols[1].issues[1].number)
+    end)
+
+    it("keeps a mid-level parent (has parent AND children)", function()
+      local cols = {
+        { name = "In Progress", issues = { { number = 7 } } },
+      }
+      local parent_map = { [7] = 4 } -- #7 has parent #4
+      local counts = { [7] = { total = 8, completed = 0 } } -- #7 has 8 children
+      local changed = Board._filter_sub_issues_in_place(cols, parent_map, counts)
+      assert.is_false(changed)
+      assert.equals(1, #cols[1].issues)
+    end)
+
+    it("keeps a root issue (no parent)", function()
+      local cols = {
+        { name = "Backlog", issues = { { number = 4 } } },
+      }
+      local parent_map = {} -- #4 has no parent
+      local counts = { [4] = { total = 8, completed = 0 } }
+      local changed = Board._filter_sub_issues_in_place(cols, parent_map, counts)
+      assert.is_false(changed)
+      assert.equals(1, #cols[1].issues)
+    end)
+
+    it("tactus-shape filter: roots + mid-level kept, leaves dropped", function()
+      -- #4 root (children), #7 mid (parent=#4, children=8), #28-#35 leaves
+      -- (parent=#7). Backlog also has #11, #12 leaves (parent=#4) and #4.
+      local cols = {
+        {
+          name = "Backlog",
+          issues = {
+            { number = 4 },
+            { number = 11 },
+            { number = 12 },
+            { number = 28 },
+            { number = 35 },
+          },
+        },
+        { name = "In Progress", issues = { { number = 7 }, { number = 30 } } },
+      }
+      local parent_map = {
+        [7] = 4,
+        [11] = 4,
+        [12] = 4,
+        [28] = 7,
+        [30] = 7,
+        [35] = 7,
+      }
+      local counts = {
+        [4] = { total = 8, completed = 0 },
+        [7] = { total = 8, completed = 0 },
+      }
+      Board._filter_sub_issues_in_place(cols, parent_map, counts)
+      assert.equals(1, #cols[1].issues)
+      assert.equals(4, cols[1].issues[1].number)
+      assert.equals(1, #cols[2].issues)
+      assert.equals(7, cols[2].issues[1].number)
+    end)
+
+    it("no-op when sub_issue_counts is nil (warm cache fallback)", function()
+      -- Cached Board:open path may run before counts are available; the
+      -- filter must NOT drop mid-level parents based on parent_map alone.
+      local cols = {
+        { name = "In Progress", issues = { { number = 7 } } },
+      }
+      local parent_map = { [7] = 4 }
+      local changed = Board._filter_sub_issues_in_place(cols, parent_map, nil)
+      assert.is_false(changed)
+      assert.equals(1, #cols[1].issues)
+    end)
+
+    it("no-op when parent_map is nil or empty", function()
+      local cols = {
+        { name = "Backlog", issues = { { number = 1 }, { number = 2 } } },
+      }
+      assert.is_false(Board._filter_sub_issues_in_place(cols, nil, {}))
+      assert.equals(2, #cols[1].issues)
+      assert.is_false(Board._filter_sub_issues_in_place(cols, {}, {}))
+      assert.equals(2, #cols[1].issues)
+    end)
+  end)
+
+  describe("_inject_missing_parents", function()
+    local function mock_api(fetch_responses)
+      local original_require = require
+      local idx = 0
+      _G.require = function(mod)
+        if mod == "okuban.api" then
+          return {
+            fetch_issue_details = function(_, cb)
+              idx = idx + 1
+              local resp = fetch_responses[idx] or { issues = {}, parents = {}, counts = {} }
+              cb(resp.issues, resp.parents, resp.counts)
+            end,
+          }
+        end
+        if mod == "okuban.api_labels" then
+          return { sort_issues = function() end }
+        end
+        return original_require(mod)
+      end
+      return function()
+        _G.require = original_require
+      end
+    end
+
+    it("injects a missing parent into its labeled column", function()
+      local data = {
+        columns = {
+          { label = "okuban:backlog", name = "Backlog", issues = { { number = 11 }, { number = 12 } } },
+        },
+      }
+      local parent_map = { [11] = 4, [12] = 4 }
+      local counts = {}
+
+      local restore = mock_api({
+        {
+          issues = { { number = 4, title = "Skeleton spike", labels = { { name = "okuban:backlog" } } } },
+          parents = {},
+          counts = { [4] = { total = 8, completed = 0 } },
+        },
+      })
+      local done = false
+      Board._inject_missing_parents(data, parent_map, counts, function()
+        done = true
+      end)
+      restore()
+
+      assert.is_true(done)
+      assert.equals(3, #data.columns[1].issues)
+      local found = false
+      for _, issue in ipairs(data.columns[1].issues) do
+        if issue.number == 4 then
+          found = true
+        end
+      end
+      assert.is_true(found)
+      assert.is_not_nil(counts[4])
+      assert.equals(8, counts[4].total)
+    end)
+
+    it("recursively pulls in grandparents", function()
+      local data = {
+        columns = {
+          { label = "okuban:backlog", name = "Backlog", issues = { { number = 28 } } },
+          { label = "okuban:in-progress", name = "In Progress", issues = {} },
+        },
+      }
+      local parent_map = { [28] = 7 }
+      local counts = {}
+
+      local restore = mock_api({
+        {
+          issues = { { number = 7, title = "Mid", labels = { { name = "okuban:in-progress" } } } },
+          parents = { [7] = 4 },
+          counts = { [7] = { total = 8, completed = 0 } },
+        },
+        {
+          issues = { { number = 4, title = "Root", labels = { { name = "okuban:backlog" } } } },
+          parents = {},
+          counts = { [4] = { total = 8, completed = 0 } },
+        },
+      })
+      local done = false
+      Board._inject_missing_parents(data, parent_map, counts, function()
+        done = true
+      end)
+      restore()
+
+      assert.is_true(done)
+      local nums_backlog = {}
+      for _, issue in ipairs(data.columns[1].issues) do
+        nums_backlog[issue.number] = true
+      end
+      assert.is_true(nums_backlog[4])
+      assert.is_true(nums_backlog[28])
+      local nums_in_progress = {}
+      for _, issue in ipairs(data.columns[2].issues) do
+        nums_in_progress[issue.number] = true
+      end
+      assert.is_true(nums_in_progress[7])
+      assert.equals(4, parent_map[7])
+    end)
+
+    it("does nothing when no parents are missing", function()
+      local data = {
+        columns = {
+          { label = "okuban:backlog", name = "Backlog", issues = { { number = 4 }, { number = 11 } } },
+        },
+      }
+      local parent_map = { [11] = 4 }
+      local counts = { [4] = { total = 1, completed = 0 } }
+      local restore = mock_api({})
+      local done = false
+      Board._inject_missing_parents(data, parent_map, counts, function()
+        done = true
+      end)
+      restore()
+
+      assert.is_true(done)
+      assert.equals(2, #data.columns[1].issues)
+    end)
+
+    it("skips parents whose label is not in any configured column", function()
+      local data = {
+        columns = {
+          { label = "okuban:backlog", name = "Backlog", issues = { { number = 11 } } },
+        },
+      }
+      local parent_map = { [11] = 4 }
+      local counts = {}
+      local restore = mock_api({
+        {
+          issues = { { number = 4, title = "No kanban label", labels = { { name = "type: bug" } } } },
+          parents = {},
+          counts = { [4] = { total = 1, completed = 0 } },
+        },
+      })
+      local done = false
+      Board._inject_missing_parents(data, parent_map, counts, function()
+        done = true
+      end)
+      restore()
+
+      assert.is_true(done)
+      assert.equals(1, #data.columns[1].issues)
+      assert.equals(11, data.columns[1].issues[1].number)
+    end)
+
+    it("places multi-label parent in the first matching column (config order)", function()
+      -- Real tactus case: an issue carries both okuban:backlog AND
+      -- okuban:in-progress. Placement must follow data.columns order
+      -- (= user config order) so it is deterministic regardless of how
+      -- GitHub returns the labels array.
+      local data = {
+        columns = {
+          { label = "okuban:backlog", name = "Backlog", issues = {} },
+          { label = "okuban:todo", name = "Todo", issues = {} },
+          { label = "okuban:in-progress", name = "In Progress", issues = { { number = 30 } } },
+        },
+      }
+      local parent_map = { [30] = 4 }
+      local counts = {}
+
+      local restore = mock_api({
+        {
+          issues = {
+            {
+              number = 4,
+              title = "Epic with both labels",
+              -- Labels intentionally listed in in-progress-first order.
+              labels = { { name = "okuban:in-progress" }, { name = "okuban:backlog" } },
+            },
+          },
+          parents = {},
+          counts = { [4] = { total = 1, completed = 0 } },
+        },
+      })
+      local done = false
+      Board._inject_missing_parents(data, parent_map, counts, function()
+        done = true
+      end)
+      restore()
+
+      assert.is_true(done)
+      -- Should land in Backlog (col 1) because it is earlier in config order
+      -- than In Progress (col 3), even though the labels array put
+      -- in-progress first.
+      assert.equals(1, #data.columns[1].issues)
+      assert.equals(4, data.columns[1].issues[1].number)
+      -- Not placed twice.
+      assert.equals(0, #data.columns[2].issues)
+      assert.equals(1, #data.columns[3].issues)
+      assert.equals(30, data.columns[3].issues[1].number)
+    end)
+
+    it("respects MAX_DEPTH cap to defend against cycles or runaway hierarchies", function()
+      -- Each step uncovers one more missing parent, chained infinitely.
+      -- After MAX_DEPTH=5 iterations the function must finalize anyway.
+      local data = {
+        columns = {
+          { label = "okuban:backlog", name = "Backlog", issues = { { number = 100 } } },
+        },
+      }
+      local parent_map = { [100] = 99 }
+      local counts = {}
+
+      local call_count = 0
+      local original_require = require
+      _G.require = function(mod)
+        if mod == "okuban.api" then
+          return {
+            fetch_issue_details = function(_, cb)
+              call_count = call_count + 1
+              -- Each fetched parent points to a new "next" parent.
+              local next_num = 99 - call_count
+              cb({
+                {
+                  number = 100 - call_count,
+                  title = "depth " .. call_count,
+                  labels = { { name = "okuban:backlog" } },
+                },
+              }, { [100 - call_count] = next_num }, {})
+            end,
+          }
+        end
+        if mod == "okuban.api_labels" then
+          return { sort_issues = function() end }
+        end
+        return original_require(mod)
+      end
+
+      local done = false
+      Board._inject_missing_parents(data, parent_map, counts, function()
+        done = true
+      end)
+      _G.require = original_require
+
+      assert.is_true(done)
+      -- MAX_DEPTH is 5 — assert we did not run away.
+      assert.is_true(call_count <= 5, "depth cap should bound calls, got " .. call_count)
+    end)
+
+    it("respects should_cancel and short-circuits the chain", function()
+      local data = {
+        columns = {
+          { label = "okuban:backlog", name = "Backlog", issues = { { number = 11 } } },
+        },
+      }
+      local parent_map = { [11] = 4 }
+      local counts = {}
+
+      local fetch_calls = 0
+      local original_require = require
+      _G.require = function(mod)
+        if mod == "okuban.api" then
+          return {
+            fetch_issue_details = function(_, cb)
+              fetch_calls = fetch_calls + 1
+              cb({
+                { number = 4, title = "Root", labels = { { name = "okuban:backlog" } } },
+              }, {}, {})
+            end,
+          }
+        end
+        if mod == "okuban.api_labels" then
+          return { sort_issues = function() end }
+        end
+        return original_require(mod)
+      end
+
+      local done = false
+      -- should_cancel returns true immediately → no fetches should run.
+      Board._inject_missing_parents(data, parent_map, counts, function()
+        done = true
+      end, function()
+        return true
+      end)
+      _G.require = original_require
+
+      assert.is_true(done)
+      assert.equals(0, fetch_calls)
+      -- Data unchanged.
+      assert.equals(1, #data.columns[1].issues)
+      assert.equals(11, data.columns[1].issues[1].number)
+    end)
+  end)
 end)

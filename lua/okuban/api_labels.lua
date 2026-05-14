@@ -403,6 +403,139 @@ function M._reset_parent_map_cache()
 end
 
 -- ---------------------------------------------------------------------------
+-- Issue details by number (used to fetch parents outside fetch limit)
+-- ---------------------------------------------------------------------------
+
+--- Batch-fetch full issue details by issue number.
+--- Used to fetch parent issues that fall outside `initial_fetch_limit`
+--- (e.g. an epic whose children are more recently updated than the epic
+--- itself) so the kanban can show them as top-level cards.
+---
+--- Issues are returned in the gh-CLI-shape compatible with the rest of
+--- the plugin: `{ number, title, body, state, updatedAt, createdAt,
+--- labels = [{ name, color, description }], assignees = [{ login }] }`.
+--- Also returns the parent and sub-issue-count entries discovered during
+--- the fetch so callers can extend their maps for transitive lookups.
+---@param issue_numbers integer[]
+---@param callback fun(issues: table[], new_parents: table<integer,integer>, new_counts: table)
+function M.fetch_issue_details(issue_numbers, callback)
+  if not issue_numbers or #issue_numbers == 0 then
+    callback({}, {}, {})
+    return
+  end
+
+  local api = require("okuban.api")
+  api.detect_repo_info(function(owner, name)
+    if not owner or not name then
+      callback({}, {}, {})
+      return
+    end
+
+    local all_issues = {}
+    local all_parents = {}
+    local all_counts = {}
+    local chunks = {}
+    for i = 1, #issue_numbers, 25 do
+      local chunk = {}
+      for j = i, math.min(i + 24, #issue_numbers) do
+        table.insert(chunk, issue_numbers[j])
+      end
+      table.insert(chunks, chunk)
+    end
+
+    local pending = #chunks
+    if pending == 0 then
+      callback({}, {}, {})
+      return
+    end
+
+    for _, chunk in ipairs(chunks) do
+      local aliases = {}
+      for _, num in ipairs(chunk) do
+        table.insert(
+          aliases,
+          string.format(
+            "i%d: issue(number: %d) { number title body state updatedAt createdAt "
+              .. "labels(first: 20) { nodes { name color description } } "
+              .. "assignees(first: 5) { nodes { login } } "
+              .. "parent { number } subIssuesSummary { total completed } }",
+            num,
+            num
+          )
+        )
+      end
+      local query =
+        string.format('{ repository(owner: "%s", name: "%s") { %s } }', owner, name, table.concat(aliases, " "))
+
+      local cmd = vim.list_extend(vim.deepcopy(gh_base_cmd()), {
+        "api",
+        "graphql",
+        "-H",
+        "GraphQL-Features: sub_issues",
+        "-f",
+        "query=" .. query,
+      })
+
+      vim.system(cmd, { text = true }, function(result)
+        vim.schedule(function()
+          if result.code == 0 and result.stdout then
+            local ok, data = pcall(vim.json.decode, result.stdout)
+            if ok and data and data.data and data.data.repository then
+              local repo = data.data.repository
+              for _, num in ipairs(chunk) do
+                local entry = repo["i" .. num]
+                if entry and entry.number then
+                  local labels = {}
+                  if entry.labels and entry.labels.nodes then
+                    for _, l in ipairs(entry.labels.nodes) do
+                      table.insert(labels, l)
+                    end
+                  end
+                  local assignees = {}
+                  if entry.assignees and entry.assignees.nodes then
+                    for _, a in ipairs(entry.assignees.nodes) do
+                      table.insert(assignees, a)
+                    end
+                  end
+                  local body = entry.body
+                  if body == vim.NIL then
+                    body = ""
+                  end
+                  table.insert(all_issues, {
+                    number = entry.number,
+                    title = entry.title,
+                    body = body or "",
+                    state = entry.state,
+                    updatedAt = entry.updatedAt,
+                    createdAt = entry.createdAt,
+                    labels = labels,
+                    assignees = assignees,
+                  })
+                  if entry.parent and entry.parent ~= vim.NIL and entry.parent.number then
+                    all_parents[entry.number] = entry.parent.number
+                  end
+                  if entry.subIssuesSummary and entry.subIssuesSummary.total and entry.subIssuesSummary.total > 0 then
+                    all_counts[entry.number] = {
+                      total = entry.subIssuesSummary.total,
+                      completed = entry.subIssuesSummary.completed or 0,
+                    }
+                  end
+                end
+              end
+            end
+          end
+
+          pending = pending - 1
+          if pending == 0 then
+            callback(all_issues, all_parents, all_counts)
+          end
+        end)
+      end)
+    end
+  end)
+end
+
+-- ---------------------------------------------------------------------------
 -- Sub-issue details
 -- ---------------------------------------------------------------------------
 
