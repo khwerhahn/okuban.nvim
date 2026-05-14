@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/khwerhahn/okuban.nvim/compare/v0.2.0...v0.2.1) (2026-05-14)
+
+
+### Bug Fixes
+
+* **ui:** always include Unsorted column when show_unsorted=true (Fixes [#158](https://github.com/khwerhahn/okuban.nvim/issues/158)) ([#159](https://github.com/khwerhahn/okuban.nvim/issues/159)) ([85d8863](https://github.com/khwerhahn/okuban.nvim/commit/85d886335dc8d6893cc4d45db05bc382404c546f))
+* **ui:** drop leaf sub-issues + auto-fetch missing parents (Fixes [#160](https://github.com/khwerhahn/okuban.nvim/issues/160)) ([#161](https://github.com/khwerhahn/okuban.nvim/issues/161)) ([a58e6e5](https://github.com/khwerhahn/okuban.nvim/commit/a58e6e5eb0191dcaa781303e83b00db3dcd496c3))
+
 ## [0.2.0](https://github.com/khwerhahn/okuban.nvim/compare/v0.1.0...v0.2.0) (2026-05-05)
 
 
