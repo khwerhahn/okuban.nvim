@@ -237,6 +237,18 @@ function M.fetch_sub_issues(parent_number, callback)
   return require("okuban.api_labels").fetch_sub_issues(parent_number, callback)
 end
 
+--- Batch-fetch full issue details by number (label-mode only).
+--- Used to pull in parent issues that fell outside `initial_fetch_limit`.
+---@param issue_numbers integer[]
+---@param callback fun(issues: table[], new_parents: table<integer,integer>, new_counts: table)
+function M.fetch_issue_details(issue_numbers, callback)
+  if config.get().source == "project" then
+    callback({}, {}, {})
+    return
+  end
+  return require("okuban.api_labels").fetch_issue_details(issue_numbers, callback)
+end
+
 --- Return the cached parent_map (label-mode only).
 --- Returns nil if never fetched or in project mode.
 ---@return table<integer, integer>|nil

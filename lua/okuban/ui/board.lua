@@ -232,12 +232,25 @@ local function format_title(name, issue_count, limit)
   return string.format(" %s (%d) ", name, issue_count)
 end
 
---- Drop sub-issues (issues whose number maps to a parent) from each column in place.
+--- Drop leaf sub-issues from each column in place. An issue is a leaf
+--- sub-issue when it has a GitHub parent AND has no children of its own.
+--- Roots (no parent) and mid-level parents (have parent but also have
+--- children) stay visible as top-level cards. Leaves are reachable via
+--- tree expansion on their parent.
+---
+--- `sub_issue_counts` indicates which issues have children. When omitted
+--- (e.g. the cached-warm Board:open fallback path), the filter is a no-op
+--- so a mid-level parent isn't accidentally hidden as a leaf — populate's
+--- async barrier will repaint with the real counts shortly.
 ---@param cols table[] Column list from build_column_list
 ---@param parent_map table<integer, integer>|nil
+---@param sub_issue_counts table<integer, {total: integer, completed: integer}>|nil
 ---@return boolean filtered_any True if at least one issue was removed
-local function filter_sub_issues_in_place(cols, parent_map)
+local function filter_sub_issues_in_place(cols, parent_map, sub_issue_counts)
   if not parent_map or vim.tbl_isempty(parent_map) then
+    return false
+  end
+  if not sub_issue_counts then
     return false
   end
   local filtered_any = false
@@ -245,7 +258,9 @@ local function filter_sub_issues_in_place(cols, parent_map)
     local original_count = #col.issues
     local filtered = {}
     for _, issue in ipairs(col.issues) do
-      if not parent_map[issue.number] then
+      local has_parent = parent_map[issue.number] ~= nil
+      local has_children = sub_issue_counts[issue.number] ~= nil
+      if not has_parent or has_children then
         table.insert(filtered, issue)
       end
     end
@@ -689,6 +704,97 @@ function Board:_setup_or_update_navigation()
   self.navigation:highlight_current()
 end
 
+--- Inject parents referenced by fetched children that are not themselves
+--- in the fetched data. Mutates `data.columns[i].issues` in place by
+--- appending each newly-fetched parent into the column whose okuban:
+--- label it carries. Extends `parent_map` and `counts` with any new
+--- parent/child or count info discovered during the fetch, then recurses
+--- so transitive ancestors are pulled in too.
+---
+--- Bounded depth: stops after MAX_DEPTH passes to defend against
+--- pathological GitHub data (cycles, runaway hierarchies).
+---@param data table Board data from api.fetch_all_columns
+---@param parent_map table<integer, integer> Mutated; new entries added
+---@param counts table<integer, {total: integer, completed: integer}> Mutated
+---@param callback fun()
+local function inject_missing_parents(data, parent_map, counts, callback)
+  local MAX_DEPTH = 5
+  local depth = 0
+  local label_to_col = {}
+  for col_idx, col in ipairs(data.columns) do
+    if col.label then
+      label_to_col[col.label] = col_idx
+    end
+  end
+
+  local function step()
+    local visible = {}
+    for _, col in ipairs(data.columns) do
+      for _, issue in ipairs(col.issues) do
+        visible[issue.number] = true
+      end
+    end
+    if data.unsorted then
+      for _, issue in ipairs(data.unsorted) do
+        visible[issue.number] = true
+      end
+    end
+
+    local missing = {}
+    for _, parent_num in pairs(parent_map) do
+      if not visible[parent_num] and not missing[parent_num] then
+        missing[parent_num] = true
+      end
+    end
+    local missing_list = {}
+    for num in pairs(missing) do
+      table.insert(missing_list, num)
+    end
+    if #missing_list == 0 or depth >= MAX_DEPTH then
+      -- Re-sort each column so injected parents land in the right position
+      -- per the configured sort (default: updatedAt desc).
+      local api_labels = require("okuban.api_labels")
+      if api_labels.sort_issues then
+        for _, col in ipairs(data.columns) do
+          api_labels.sort_issues(col.issues)
+        end
+      end
+      callback()
+      return
+    end
+    depth = depth + 1
+
+    local api = require("okuban.api")
+    api.fetch_issue_details(missing_list, function(parents, new_parents, new_counts)
+      for _, parent in ipairs(parents) do
+        local placed = false
+        for _, label in ipairs(parent.labels or {}) do
+          local target = label_to_col[label.name]
+          if target and data.columns[target] then
+            table.insert(data.columns[target].issues, parent)
+            placed = true
+            break
+          end
+        end
+        -- Parent with no matching okuban: label is intentionally not
+        -- injected: it would have no home column. Its children remain
+        -- hidden by the leaf filter and unreachable from the board,
+        -- which is the user's responsibility to fix (label the parent).
+        local _ = placed
+      end
+      for k, v in pairs(new_parents) do
+        parent_map[k] = v
+      end
+      for k, v in pairs(new_counts) do
+        counts[k] = v
+      end
+      step()
+    end)
+  end
+
+  step()
+end
+
 --- Populate existing loading windows with real data in-place.
 --- Waits for ALL async data fetches (worktree enrichment + sub-issue
 --- metadata) before painting so the user sees one fully-formed render
@@ -765,9 +871,9 @@ function Board:populate(data, on_painted)
     self:_stop_loading_animation()
 
     local pm = fresh_parent_map or cached_parent_map or {}
-    local final_cols = build_column_list(data)
-    filter_sub_issues_in_place(final_cols, pm)
     self.sub_issue_counts = fresh_counts or self.sub_issue_counts or {}
+    local final_cols = build_column_list(data)
+    filter_sub_issues_in_place(final_cols, pm, self.sub_issue_counts)
     self.worktree_map = enriched_wt_map or wt_map
 
     self:_paint_columns(final_cols, layout, self.worktree_map, claude.get_all_sessions(), self.sub_issue_counts)
@@ -803,7 +909,16 @@ function Board:populate(data, on_painted)
     api.fetch_sub_issue_counts(all_numbers, function(counts, pm)
       fresh_counts = counts
       fresh_parent_map = pm
-      on_async_done()
+      -- Pull in parents referenced by fetched children that fell outside
+      -- `initial_fetch_limit`. Each newly-injected parent is appended to
+      -- `data.columns[i].issues` based on its okuban: label, so the leaf
+      -- filter has a complete picture of which parents are on the board.
+      inject_missing_parents(data, fresh_parent_map, fresh_counts, function()
+        if self._populate_gen ~= gen then
+          return
+        end
+        on_async_done()
+      end)
     end)
   end
 
@@ -845,10 +960,13 @@ function Board:open(data)
   local sessions = claude.get_all_sessions()
 
   -- Apply cached parent_map filter pre-render (warm path; matches populate).
+  -- Without cached sub_issue_counts the filter is a no-op (it can't tell
+  -- mid-level parents from leaves), so populate's full async barrier path
+  -- will repaint with the correct filter shortly.
   local api_module = require("okuban.api")
   local cached_parent_map = (api_module.get_cached_parent_map and api_module.get_cached_parent_map()) or nil
   if cached_parent_map and not vim.tbl_isempty(cached_parent_map) then
-    filter_sub_issues_in_place(cols, cached_parent_map)
+    filter_sub_issues_in_place(cols, cached_parent_map, self.sub_issue_counts)
   end
 
   for i, col in ipairs(cols) do
@@ -1151,5 +1269,7 @@ function Board.close_instance()
 end
 
 Board._build_column_list = build_column_list
+Board._filter_sub_issues_in_place = filter_sub_issues_in_place
+Board._inject_missing_parents = inject_missing_parents
 
 return Board
