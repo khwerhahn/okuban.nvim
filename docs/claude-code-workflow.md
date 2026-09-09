@@ -40,7 +40,7 @@ All three layers are checked into the repo under `CLAUDE.md` and `.claude/`. Whe
 
 | Tool | Purpose | Install |
 |------|---------|---------|
-| [Claude Code](https://claude.ai) | AI-assisted development | `npm install -g @anthropic-ai/claude-code` |
+| [Claude Code](https://claude.ai) | AI-assisted development | `curl -fsSL https://claude.ai/install.sh \| bash` (native; upgrade with `claude update`) |
 | [GitHub CLI](https://cli.github.com) (`gh`) | Issue/label management, auth | `brew install gh` then `gh auth login` |
 | [jq](https://jqlang.github.io/jq/) | JSON parsing in hooks | `brew install jq` (macOS) or `apt install jq` (Linux) |
 
